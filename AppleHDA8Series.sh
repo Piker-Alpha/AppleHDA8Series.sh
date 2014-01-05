@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# Script for creating AppleHDA89.kext
+# Script for creating AppleHDA892.kext
 #
 # Version 0.2 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
@@ -143,7 +143,7 @@ function _creatInfoPlist()
   echo '			<array>'                                                                            >> $gInfoPlist
   echo '				<dict>'                                                                     >> $gInfoPlist
   echo '					<key>CodecID</key>'                                                 >> $gInfoPlist
-  echo '					<integer>'gCodecID'</integer>'                                      >> $gInfoPlist
+  echo '					<integer>'$gCodecID'</integer>'                                      >> $gInfoPlist
   echo '					<key>ConfigData</key>'                                              >> $gInfoPlist
   echo '					<data>'$gConfigData'</data>'                                        >> $gInfoPlist
   echo '					<key>FuncGroup</key>'                                               >> $gInfoPlist
