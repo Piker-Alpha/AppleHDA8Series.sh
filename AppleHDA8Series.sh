@@ -3,27 +3,27 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 0.3 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 0.4 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
 #
 # Contributors:
 #
-# Usage (version 0.2 - version 0.3):
+# Usage (version 0.2 - version 0.4):
 #
 #           - ./AppleHDA8Series.sh [target directory]
 #
 #           - ./AppleHDA8Series.sh /System/Library/Extensions
 #
-# Usage (version 0.4 and greater):
+# Usage (version 0.5 and greater):
 #
 #           - ./AppleHDA8Series.sh [target directory] [target version]
 #
 #           - ./AppleHDA8Series.sh /System/Library/Extensions 892
 #
 
-gScriptVersion=0.3
+gScriptVersion=0.4
 
 #
 # Get user id
@@ -219,17 +219,17 @@ function main()
   #
   # Copy the Platforms file from the source directory.
   #
-  cp "${gSourceDirectory}/Platforms.xml.zlib" "${gTargetDirectory}/AppleHDA${$gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/"
+  cp "${gSourceDirectory}/Platforms.xml.zlib" "${gTargetDirectory}/AppleHDA${gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/"
 
   #
   # Copy the layout file from the source directory.
   #
-  cp "${gSourceDirectory}/layout${gLayoutID}.xml.zlib" "${gTargetDirectory}/AppleHDA${$gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/"
+  cp "${gSourceDirectory}/layout${gLayoutID}.xml.zlib" "${gTargetDirectory}/AppleHDA${gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/"
 
   #
   # Add MacOS directory for our symbolic link.
   #
-  mkdir "${gTargetDirectory}/AppleHDA${$gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/MacOS"
+  mkdir "${gTargetDirectory}/AppleHDA${gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/MacOS"
 
   #
   # Create symbolic link to executable.
@@ -244,14 +244,14 @@ function main()
   #
   # Copy AppleHDA.kext/Contents/Info.plist to our AppleHDALoader.kext
   #
-  cp "${gExtensionsDirectory}/AppleHDA.kext/Contents/Info.plist" "${gTargetDirectory}/AppleHDA${$gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/"
+  cp "${gExtensionsDirectory}/AppleHDA.kext/Contents/Info.plist" "${gTargetDirectory}/AppleHDA${gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/"
 
   #
   # Copy CodeResources.
   #
-  cp -R "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/DspFuncLib.kext/Contents/_CodeSignature" "${gTargetDirectory}/AppleHDA${$gKextID}.kext/Contents/"
+  cp -R "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/DspFuncLib.kext/Contents/_CodeSignature" "${gTargetDirectory}/AppleHDA${gKextID}.kext/Contents/"
 
-  gTargetFile="${gTargetDirectory}/AppleHDA${$gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Info.plist"
+  gTargetFile="${gTargetDirectory}/AppleHDA${gKextID}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Info.plist"
 
   #
   # Replace version info with "9.1.1" in AppleHDALoader.kext
@@ -263,8 +263,8 @@ function main()
   #
   # Fix ownership and permissions.
   #
-  chown -R root:wheel "${gExtensionsDirectory}/AppleHDA.kext"
-  chmod -R 755 "${gExtensionsDirectory}/AppleHDA.kext"
+  chown -R root:wheel "${gTargetDirectory}/AppleHDA${gKextID}.kext"
+  chmod -R 755 "${gTargetDirectory}/AppleHDA${gKextID}.kext"
 
   #
   # Check target directory.
