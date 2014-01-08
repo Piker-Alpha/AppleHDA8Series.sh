@@ -3,13 +3,14 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 1.0 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 1.1 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
 #			- Ask for confirmation and replace target kext when permitted (Pike R. Alpha, January 2014)
 #			- Ask if the default or active layout-id should be used (Pike R. Alpha, January 2014)
 #			- Changed 'gKextID' to 'gKextName' to let us select a target name (Pike R. Alpha, January 2014)
+#			- Format of extracted ConfigData fixed (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a target argument for 'layout-id'.
@@ -40,7 +41,7 @@
 #           - ./AppleHDA8Series.sh /System/Library/Extensions 892
 #
 
-gScriptVersion=1.0
+gScriptVersion=1.1
 
 #
 # Setting the debug mode (default off).
@@ -364,7 +365,7 @@ function _initConfigData
             if [[ $layoutID -eq $gLayoutID ]]; then
               _DEBUG_DUMP "Target LayoutID found ...\nGetting ConfigData ..."
 
-              gConfigData=$(/usr/libexec/PlistBuddy -c "${commandString}ConfigData" $sourceFile)
+              extractedConfigData=$(/usr/libexec/PlistBuddy -c "${commandString}ConfigData" $sourceFile)
               return 1
             fi
           fi
@@ -430,11 +431,13 @@ function _initConfigData
     then
       _DEBUG_DUMP "ConfigData for Realtek ALC ${gKextID} found!"
       #
-      # -n stops it from adding a trailing new line character.
+      # \c stops it from adding a trailing new line character (-n is not available in sh).
       #
       echo '------------------------------------------------------------'
-      echo -n $gConfigData | xxd -p
+      gConfigData=$(echo "$extractedConfigData\c" | base64)
+      echo $gConfigData
       echo '------------------------------------------------------------'
+
     else
       _DEBUG_DUMP "Error: ConfigData for ALC ${gKextID} NOT found!"
   fi
@@ -567,7 +570,7 @@ function main()
   #
   # Make target directory structure.
   #
-  mkdir -m 644 -p "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources"
+  mkdir -m 755 -p "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources"
 
   #
   # Copy the Platforms file from the source directory.
@@ -623,7 +626,7 @@ function main()
   # Fix ownership and permissions.
   #
   echo 'Fixing file permissions ...'
-  chmod -R 644 "${gTargetDirectory}/${gKextName}.kext"
+  chmod -R 755 "${gTargetDirectory}/${gKextName}.kext"
   #
   # Ownership of a file may only be altered by a super-user hence the use of sudo here.
   #
