@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 1.2 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 1.3 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -13,11 +13,12 @@
 #			- Format of extracted ConfigData fixed (Pike R. Alpha, January 2014)
 #			- Now also asks if the kext should be copied to /S*/L*/Extensions (Pike R. Alpha, January 2014)
 #			- Now also asks if you want to reboot (Pike R. Alpha, January 2014)
-#			- Now also runs kextutil to check the target kext (Pike R. Alpha, January 2014)
+#			- Run kextutil to check the target kext (Pike R. Alpha, January 2014)
+#			- Show available Info-NN.plist after the download/unzipping (Pike R. Alpha, January 2014)
+#			- Read/matches the version of OS X with Info-NN.plist (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a target argument for 'layout-id'.
-#			- Match the version of OS X with Info-NN.plist
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
 #
 # Contributors:
@@ -44,12 +45,12 @@
 #           - ./AppleHDA8Series.sh /System/Library/Extensions 892
 #
 
-gScriptVersion=1.2
+gScriptVersion=1.3
 
 #
 # Setting the debug mode (default off).
 #
-let DEBUG=1
+let DEBUG=0
 
 #
 # Get user id
@@ -116,16 +117,21 @@ gSupportedCodecs=(
 283904133,0x10EC0885,885
 283904135,0x10EC0887,887
 283904136,0x10EC0888,888
-283904137,0x10EC0898,889
+283904137,0x10EC0889,889
 283904146,0x10EC0892,892
 283904152,0x10EC0898,898
-283906384,0x10EC1150,1150
+283904256,0x10EC0900,1150
 )
 
 #
 # The default download link to Toleda's Githib repository.
 #
 gDownloadLink="https://raw.github.com/toleda/audio_ALC892/master/892.zip"
+
+#
+# The version info of the running system i.e. '10.9.2'
+#
+gProductVersion="$(sw_vers -productVersion)"
 
 #
 # Output styling.
@@ -173,8 +179,6 @@ function _DEBUG_DUMP
   if [[ $DEBUG -eq 1 ]];
     then
       echo "$1"
-    else
-      echo "$1" > /dev/null
   fi
 }
 
@@ -341,19 +345,19 @@ function _initCodecID()
 
 function _initConfigData
 {
+  let stat=0
   #
   # Local function definition
   #
   function __searchForConfigData()
   {
-	let stat=0
     let index=0
     local sourceFile=$1
 
     while [ $index -lt 20 ];
     do
       local commandString="Print :IOKitPersonalities:HDA\ Hardware\ Config\ Resource:HDAConfigDefault:${index}:"
-      local codecID=$(/usr/libexec/PlistBuddy -c "${commandString}CodecID" $sourceFile)
+      local codecID=$(/usr/libexec/PlistBuddy -c "${commandString}CodecID" $sourceFile 2>&1)
       let index++
 
       if [[ $codecID =~ "Does Not Exist" ]];
@@ -380,16 +384,16 @@ function _initConfigData
   #
   # The most common spot to look for ConfigData is of course in AppleHDAHardwareConfigDriver.kext
   #
-  echo 'Looking in /System/Library/Extensions/AppleHDA.kext for the ConfigData'
-  __searchForConfigData "/System/Library/Extensions/AppleHDA.kext/Contents/PlugIns/AppleHDAHardwareConfigDriver.kext/Contents/Info.plist"
+  echo "Looking in ${gExtensionsDirectory}/AppleHDA.kext for the ConfigData"
+  __searchForConfigData "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAHardwareConfigDriver.kext/Contents/Info.plist"
 
   if (($? == 0));
     then
       #
       # But when that fails, then we look for the data in FakeSMC.kext
       #
-      echo 'Looking in /System/Library/Extensions/FakeSMC.kext for the ConfigData'
-      __searchForConfigData "/System/Library/Extensions/FakeSMC.kext/Contents/Info.plist"
+      echo "Looking in ${gExtensionsDirectory}/FakeSMC.kext for the ConfigData"
+      __searchForConfigData "${gExtensionsDirectory}/FakeSMC.kext/Contents/Info.plist"
       #
       # Check status for success.
       #
@@ -398,21 +402,65 @@ function _initConfigData
           #
           # Oops. Failure. Download the files from Toleda's Github repository :-)
           #
-          echo "Error: ConfigData not found\nDownloading ${gDownloadLink} ..."
+          echo "Error: ConfigData not found!\nDownloading ${gDownloadLink} ...\n"
           sudo curl -o "/tmp/ALC${gKextID}.zip" $gDownloadLink
           #
           # Unzip the downloaded file.
           #
-          echo 'Done\nUnzipping /tmp/ALC${gKextID}.zip ...'
+          echo ''
+          _DEBUG_DUMP 'Download Done'
+          printf 'Unzipping '
           unzip -u "/tmp/ALC${gKextID}.zip" -d "/tmp/"
-          echo 'Download done'
           #
-          # We should now have the Info.plist so let's do another search for the ConfigData.
+          # We <em>should</em> now have the Info.plist so let's do another search for the ConfigData,
+          # but first convert 'gProductVersion' to something that Toleda is using (example: 10.9.2 -> 92)
           #
-          # TODO: We should match the plist with the installed/target version of OS X.
+          local plistID=99 # $(gProductVersion | sed 's/[10\./]//g')
           #
-          echo "Looking in /tmp/${gKextID}/Info-91.plist for the ConfigData"
-          __searchForConfigData "/tmp/${gKextID}/Info-91.plist"
+          # Start by checking if the file exists.
+          #
+          if [[ ! -e "/tmp/${gKextID}/Info-${plistID}.plist" ]];
+            then
+              _DEBUG_DUMP "Warning: Info-${plistID}.plist not found!"
+              #
+              # No. File does not exist. Create list with available plist files.
+              #
+              plistNames=($(ls /tmp/${gKextID}/Info-??.plist | tr "\n" " "))
+              #
+              # Get number of plist files.
+              #
+              local numberOfPlistFiles=${#plistNames[@]}
+              #
+              #
+              #
+              if [[ numberOfPlistFiles -gt 0 ]];
+                then
+                  let index=0
+                  echo "\nThe available Info.plist files for the ALC ${gKextID} are:\n"
+
+                  for plistName in ${plistNames[@]}
+                  do
+                    let index++
+                     echo "[${index}] ${plistName}"
+                  done
+
+                  echo ''
+                  read -p "Please choose the matching Info.plist (1/${index}) " selection
+                  case "$selection" in
+                    [1-${index}])
+                       echo "\nLooking in: ${plistNames[${selection} - 1]} for the ConfigData"
+                       __searchForConfigData "${plistNames[${selection} - 1]}"
+                       ;;
+
+                    *) echo 'Error: Invalid selection!'
+                       return 0
+                       ;;
+                  esac
+              fi
+            else
+              echo "Looking in /tmp/${gKextID}/Info-${plistID}.plist for the ConfigData"
+              __searchForConfigData "/tmp/${gKextID}/Info-${plistID}.plist"
+          fi
 
           if (($? == 1));
             then
@@ -421,18 +469,18 @@ function _initConfigData
           fi
         else
           let stat=1
-          gSourceDirectory="/System/Library/Extensions/AppleHDA.kext/Contents/Resources"
+          gSourceDirectory="${gExtensionsDirectory}/AppleHDA.kext/Contents/Resources"
       fi
     else
       let stat=1
-      gSourceDirectory="/System/Library/Extensions/AppleHDA.kext/Contents/Resources"
+      gSourceDirectory="${gExtensionsDirectory}/AppleHDA.kext/Contents/Resources"
   fi
   #
   # Inform user about the progress.
   #
   if [[ $stat -eq 1 ]];
     then
-      _DEBUG_DUMP "ConfigData for Realtek ALC ${gKextID} found!"
+      echo  "ConfigData for Realtek ALC ${gKextID} found!"
       #
       # \c stops it from adding a trailing new line character (-n is not available in sh).
       #
@@ -440,10 +488,12 @@ function _initConfigData
       gConfigData=$(echo "$extractedConfigData\c" | base64)
       echo $gConfigData
       echo '------------------------------------------------------------'
-
+      return 1
     else
-      _DEBUG_DUMP "Error: ConfigData for ALC ${gKextID} NOT found!"
+      echo "Error: ConfigData for Realtek ALC ${gKextID} with layout-id:${gLayoutID} was NOT found!"
   fi
+
+  return 0
 }
 
 
@@ -542,7 +592,7 @@ function main()
         fi
     fi
 
-    _DEBUG_DUMP "AppleHDA8Series.sh was launced with a target ALC${targetALC}\n"
+    _DEBUG_DUMP "AppleHDA8Series.sh was launched with a target ALC${targetALC}\n"
   fi
 
   _initCodecID $targetALC
@@ -555,24 +605,32 @@ function main()
     #
     # Yes. Ask if  we should use this layout-id.
     #
-    question="${gKextName}.kext already exists. Do you want to overwrite it (y/n)? "
-
-    read -p "$question" choice
+    read -p "${gKextName}.kext already exists. Do you want to overwrite it (y/n)? " choice
     case "$choice" in
       y|Y)
-        echo "Removing directory ..."
+        _DEBUG_DUMP "Removing directory ..."
         rm -r "${gTargetDirectory}/${gKextName}.kext"
         ;;
      esac
   fi
 
-  echo "Creating ${gKextName}.kext in: $gTargetDirectory"
-
   _initConfigData
+  #
+  # Check error status.
+  #
+  if (( $? == 0 ));
+    then
+      #
+      # Error. ConfigData not found.
+      #
+      echo 'Aborting ...\n'
+      exit 1
+  fi
 
   #
   # Make target directory structure.
   #
+  echo "Creating ${gKextName}.kext in: $gTargetDirectory"
   mkdir -m 755 -p "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources"
 
   #
@@ -622,34 +680,44 @@ function main()
   # Replace version info with "9.1.1" in AppleHDALoader.kext
   #
   gTargetFile="${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Info.plist"
-
+  #
+  # -c = Execute command and exit.
+  #
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 9.1.1" "$gTargetFile"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 9.1.1a10" "$gTargetFile"
   #
   # Fix ownership and permissions.
   #
-  echo 'Fixing file permissions ...'
+  _DEBUG_DUMP 'Fixing file permissions ...'
   chmod -R 755 "${gTargetDirectory}/${gKextName}.kext"
   #
   # Ownership of a file may only be altered by a super-user hence the use of sudo here.
   #
-  echo 'Fixing file ownership ...'
+  _DEBUG_DUMP 'Fixing file ownership ...'
   chown -R root:wheel "${gTargetDirectory}/${gKextName}.kext"
 
-  if [[ "$gTargetDirectory" != "$gExtensionsDirectory" ]]; then
-    kextutil -qtnk /mach_kernel "$gTargetDirectory/${gKextName}.kext"
+  if [[ "$gTargetDirectory" != "$gExtensionsDirectory" ]];
+    then
+      _DEBUG_DUMP "Checking kext with kextutil ..."
+      #
+      # -q = Quiet mode; print no informational or error messages.
+      # -t = Perform all possible tests on the specified kexts.
+      # -n = Neither load the kext nor send personalities to the kernel.
+      # -k = Link against the given kernel_file.
+      #
+      kextutil -qtnk /mach_kernel "$gTargetDirectory/${gKextName}.kext"
 
-    if (($? == 0));
-      then
-        echo "${gKextName}.kext appears to be loadable (including linkage for on-disk libraries)."
+      if (($? == 0));
+        then
+          echo "${gKextName}.kext appears to be loadable (including linkage for on-disk libraries)."
 
-        read -p "Do you want to copy ${gKextName}.kext to: /System/Library/Extensions? (y/n) " choice
-        case "$choice" in
-          y|Y ) cp "$gTargetDirectory/${gKextName}.kext" "$gExtensionsDirectory"
-                gTargetDirectory = "$gExtensionsDirectory"
-          ;;
-        esac
-    fi
+          read -p "Do you want to copy ${gKextName}.kext to: ${gExtensionsDirectory}? (y/n) " choice
+          case "$choice" in
+            y|Y ) cp "$gTargetDirectory/${gKextName}.kext" "$gExtensionsDirectory"
+                  gTargetDirectory = "$gExtensionsDirectory"
+            ;;
+          esac
+      fi
   fi
   #
   # Check target directory.
@@ -658,7 +726,7 @@ function main()
     #
     # Conditionally touch the Extensions directory.
     #
-    echo 'Triggering a kernelcache refresh ...'
+    _DEBUG_DUMP 'Triggering a kernelcache refresh ...'
     touch "$gExtensionsDirectory"
 
     read -p "Do you want to reboot now? (y/n) " choice2
