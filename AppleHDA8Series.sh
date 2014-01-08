@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 1.1 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 1.2 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -11,6 +11,9 @@
 #			- Ask if the default or active layout-id should be used (Pike R. Alpha, January 2014)
 #			- Changed 'gKextID' to 'gKextName' to let us select a target name (Pike R. Alpha, January 2014)
 #			- Format of extracted ConfigData fixed (Pike R. Alpha, January 2014)
+#			- Now also asks if the kext should be copied to /S*/L*/Extensions (Pike R. Alpha, January 2014)
+#			- Now also asks if you want to reboot (Pike R. Alpha, January 2014)
+#			- Now also runs kextutil to check the target kext (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a target argument for 'layout-id'.
@@ -41,7 +44,7 @@
 #           - ./AppleHDA8Series.sh /System/Library/Extensions 892
 #
 
-gScriptVersion=1.1
+gScriptVersion=1.2
 
 #
 # Setting the debug mode (default off).
@@ -450,9 +453,9 @@ function _initConfigData
 
 function _creatInfoPlist()
 {
-  echo '<?xml version=\"1.0\" encoding=\"UTF-8\"?>'                                                                   > $gInfoPlist
-  echo '<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">'  >> $gInfoPlist
-  echo '<plist version=\"1.0\">'                                                                                     >> $gInfoPlist
+  echo '<?xml version="1.0" encoding="UTF-8"?>'                                                                       > $gInfoPlist
+  echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'      >> $gInfoPlist
+  echo '<plist version="1.0">'                                                                                       >> $gInfoPlist
   echo '<dict>'                                                                                                      >> $gInfoPlist
   echo '	<key>BuildMachineOSBuild</key>'                                                                          >> $gInfoPlist
   echo '	<string>13C32</string>'                                                                                  >> $gInfoPlist
@@ -620,8 +623,8 @@ function main()
   #
   gTargetFile="${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Info.plist"
 
-  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString string 9.1.1" "$gTargetFile"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion string 9.1.1a10" "$gTargetFile"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 9.1.1" "$gTargetFile"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 9.1.1a10" "$gTargetFile"
   #
   # Fix ownership and permissions.
   #
@@ -631,8 +634,23 @@ function main()
   # Ownership of a file may only be altered by a super-user hence the use of sudo here.
   #
   echo 'Fixing file ownership ...'
-  sudo chown -R root:wheel "${gTargetDirectory}/${gKextName}.kext"
+  chown -R root:wheel "${gTargetDirectory}/${gKextName}.kext"
 
+  if [[ "$gTargetDirectory" != "$gExtensionsDirectory" ]]; then
+    kextutil -qtnk /mach_kernel "$gTargetDirectory/${gKextName}.kext"
+
+    if (($? == 0));
+      then
+        echo "${gKextName}.kext appears to be loadable (including linkage for on-disk libraries)."
+
+        read -p "Do you want to copy ${gKextName}.kext to: /System/Library/Extensions? (y/n) " choice
+        case "$choice" in
+          y|Y ) cp "$gTargetDirectory/${gKextName}.kext" "$gExtensionsDirectory"
+                gTargetDirectory = "$gExtensionsDirectory"
+          ;;
+        esac
+    fi
+  fi
   #
   # Check target directory.
   #
@@ -641,7 +659,13 @@ function main()
     # Conditionally touch the Extensions directory.
     #
     echo 'Triggering a kernelcache refresh ...'
-    sudo touch "$gExtensionsDirectory"
+    touch "$gExtensionsDirectory"
+
+    read -p "Do you want to reboot now? (y/n) " choice2
+    case "$choice2" in
+      y|Y ) reboot now
+      ;;
+    esac
   fi
 
   echo 'Done.\n'
