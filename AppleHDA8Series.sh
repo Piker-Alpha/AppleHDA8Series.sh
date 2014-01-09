@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 1.3 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 1.4 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -16,9 +16,18 @@
 #			- Run kextutil to check the target kext (Pike R. Alpha, January 2014)
 #			- Show available Info-NN.plist after the download/unzipping (Pike R. Alpha, January 2014)
 #			- Read/matches the version of OS X with Info-NN.plist (Pike R. Alpha, January 2014)
+#			- Errors in gSupportedCodecs fixed, thanks to Toleda (Pike R. Alpha, January 2014)
+#			- gSupportedCodecs expanded with layout-id's (Pike R. Alpha, January 2014)
+#			- Function _initLayoutID improved (Pike R. Alpha, January 2014)
+#			- Function _selectLayoutID added (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a target argument for 'layout-id'.
+#			- Add support for more flexible arguments like:
+#             -l = target layout-id
+#             -d = target directory
+#             -a = target Realtek ALCnnn
+#
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
 #
 # Contributors:
@@ -45,7 +54,7 @@
 #           - ./AppleHDA8Series.sh /System/Library/Extensions 892
 #
 
-gScriptVersion=1.3
+gScriptVersion=1.4
 
 #
 # Setting the debug mode (default off).
@@ -114,13 +123,13 @@ gExtensionsDirectory="/System/Library/Extensions"
 # List with supported Realtek codecs.
 #
 gSupportedCodecs=(
-283904133,0x10EC0885,885
-283904135,0x10EC0887,887
-283904136,0x10EC0888,888
-283904137,0x10EC0889,889
-283904146,0x10EC0892,892
-283904152,0x10EC0898,898
-283904256,0x10EC0900,1150
+283904133,0x10EC0885,885,1
+283904135,0x10EC0887,887,1.2.3
+283904136,0x10EC0888,888,1.2.3
+283904137,0x10EC0889,889,1.2.3
+283904146,0x10EC0892,892,1.2.3
+283904152,0x10EC0898,898,1.2.3
+283904256,0x10EC0900,1150,1.2
 )
 
 #
@@ -182,6 +191,39 @@ function _DEBUG_DUMP
   fi
 }
 
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _selectLayoutID()
+{
+  let index=0
+  echo "\nThe available layout-id's for the ALC ${gKextID} are:\n"
+
+  for layout in ${gSupportedLayoutIDs[@]}
+  do
+    let index++
+    echo "[${index}] layout-id: ${layout}"
+  done
+
+  echo ''
+
+  read -p "Please choose the desired layout-id (1/${index})? " selection
+  case "$selection" in
+    [1-${index}])
+      echo "\nNow using layout-id: ${selection}"
+      let gLayoutID=$selection
+      ;;
+
+    *) echo 'Error: Invalid selection!'
+      _initLayoutID $1
+      ;;
+  esac
+}
+
+
 #
 #--------------------------------------------------------------------------------
 #
@@ -189,31 +231,78 @@ function _DEBUG_DUMP
 function _initLayoutID()
 {
   #
-  # -r = Show subtrees rooted by objects that match the specified criteria (-p and -k)
-  # -w = Clipping (none, unlimited line width)
-  # -p = Traverse the registry plane 'IODeviceTree'
-  # -n = Show properties if there is an object with the name 'efi'
-  # -k = Show properties with the key 'device-properties'
-
-  local layoutID=$(ioreg -r -w 0 -p IODeviceTree -n HDEF -k layout-id | grep layout-id | sed -e 's/["layoutid" ,<>|=-]//g')
-  let layoutID="0x${layoutID:6:2}${layoutID:4:2}${layoutID:2:2}${layoutID:0:2}"
-
+  # Are we being called with a target 'layout-id'?
   #
-  # is this a different layout-id than the default one?
-  #
-  if [[ layoutID -ne gLayoutID ]]; then
-    #
-    # Yes. Ask if we should use this layout-id.
-    #
-    question="Do you want to use [${layoutID}] as the layout-id (y/n)? "
+  if [[ $# -eq 1 ]];
+    then
+      #
+      # Yes. Use that (assuming that it is correct/supported).
+      #
+      let gLayoutID=$1
+      echo "Notice: layout-id override detected, now using: ${gLayoutID}"
+    else
+      #
+      # We're not being called with a layout-id, get it from the running configuration.
+      #
+      # -r = Show subtrees rooted by objects that match the specified criteria (-p and -k)
+      # -w = Clipping (none, unlimited line width)
+      # -p = Traverse the registry plane 'IODeviceTree'
+      # -n = Show properties if there is an object with the name 'HDEF'
+      #
+      local ioregHDEFData=$(ioreg -rw 0 -p IODeviceTree -n HDEF)
+      #
+      # Check for Device (HDEF) in the ioregHDEFData.
+      #
+      if [[ $(echo $ioregHDEFData | grep -o "HDEF@1B") == "HDEF@1B" ]];
+        then
+          _DEBUG_DUMP "ACPI Device (HDEF) {} found"
+          #
+          # Get layout-id from ioreg data.
+          local layoutID=$(echo $ioregHDEFData | grep layout-id | sed -e 's/.*<//' -e 's/>//')
+          #
+          # Check value of layout-id (might still be empty).
+          #
+          if [[ $layoutID == "" ]];
+            then
+              #
+              # Show list with supported layout-id's and let user select one.
+              #
+              _selectLayoutID
+            else
+              #
+              # Reverse bytes.
+              #
+              let layoutID="0x${layoutID:6:2}${layoutID:4:2}${layoutID:2:2}${layoutID:0:2}"
+              #
+              # Is this a different layout-id than the default one?
+              #
+              if [[ $layoutID -ne $gLayoutID ]];
+                then
+                  #
+                  # Yes. Ask if we should use this layout-id.
+                  #
+                  question="Do you want to use [${gLayoutID}] as the layout-id (y/n)? "
 
-    read -p "$question" choice
-    case "$choice" in
-      y|Y )
-          echo "Now using layout-id: ${layoutID}"
-          let gLayoutID=$layoutID
-          ;;
-    esac
+                  read -p "$question" choice
+                  case "$choice" in
+                    y|Y)
+                      echo "Notice: Now using layout-id: ${gLayoutID}"
+                      ;;
+
+                    *) #
+                       # Show list with supported layout-id's and let user select one.
+                       #
+                       _selectLayoutID
+                       ;;
+                  esac
+              fi
+          fi
+        else
+          echo 'Error: ACPI Device (HDEF) {} NOT found!'
+          echo '       ACPI tables appear to be broken and require patching!'
+          echo 'Aborting ...'
+          exit 1
+      fi
   fi
 }
 
@@ -309,15 +398,7 @@ function _initCodecID()
            #
            # Get target codec data.
            #
-           local codecData=${gSupportedCodecs[ ($selection - 1) ]}
-           #
-           # Split the codec data.
-           #
-           local data=($codecData)
-           #
-           # Restore the default delimiter.
-           #
-           IFS=$ifs
+           local data=(${gSupportedCodecs[ ($selection - 1) ]})
            #
            # Updating global variables.
            #
@@ -325,6 +406,18 @@ function _initCodecID()
            gCodecID=${data[0]}
            gKextID=${data[2]}
            gDownloadLink="https://raw.github.com/toleda/audio_ALC${data[2]}/master/${data[2]}.zip"
+           #
+           # Change delimiter.
+           #
+           IFS="."
+           #
+           # Split data into supported layout-id's.
+           #
+           gSupportedLayoutIDs=(${data[3]})
+           #
+           # Restore the default delimiter.
+           #
+           IFS=$ifs
            ;;
 
         *) echo "Invalid selection, retrying ..."
@@ -372,7 +465,7 @@ function _initConfigData
             if [[ $layoutID -eq $gLayoutID ]]; then
               _DEBUG_DUMP "Target LayoutID found ...\nGetting ConfigData ..."
 
-              extractedConfigData=$(/usr/libexec/PlistBuddy -c "${commandString}ConfigData" $sourceFile)
+              gExtractedConfigData=$(/usr/libexec/PlistBuddy -c "${commandString}ConfigData" $sourceFile)
               return 1
             fi
           fi
@@ -402,7 +495,7 @@ function _initConfigData
           #
           # Oops. Failure. Download the files from Toleda's Github repository :-)
           #
-          echo "Error: ConfigData not found!\nDownloading ${gDownloadLink} ...\n"
+          echo "Error: ConfigData NOT found!\nDownloading ${gDownloadLink} ...\n"
           sudo curl -o "/tmp/ALC${gKextID}.zip" $gDownloadLink
           #
           # Unzip the downloaded file.
@@ -485,7 +578,7 @@ function _initConfigData
       # \c stops it from adding a trailing new line character (-n is not available in sh).
       #
       echo '------------------------------------------------------------'
-      gConfigData=$(echo "$extractedConfigData\c" | base64)
+      gConfigData=$(echo "$gExtractedConfigData\c" | base64)
       echo $gConfigData
       echo '------------------------------------------------------------'
       return 1
