@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 1.4 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 1.5 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -20,19 +20,16 @@
 #			- gSupportedCodecs expanded with layout-id's (Pike R. Alpha, January 2014)
 #			- Function _initLayoutID improved (Pike R. Alpha, January 2014)
 #			- Function _selectLayoutID added (Pike R. Alpha, January 2014)
+#			- New/more flexible script arguments added (Pike R. Alpha, January 2014)
 #
 # TODO:
-#			- Add a target argument for 'layout-id'.
-#			- Add support for more flexible arguments like:
-#             -l = target layout-id
-#             -d = target directory
-#             -a = target Realtek ALCnnn
-#
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
+#			- Implement binary patch methods for AppleHDA and AppleHDAHardwareConfigDriver
 #
 # Contributors:
 #			- Thanks to 'Toleda' for providing a great Github repository.
 #			- Thanks to 'philip_petev' for his tip to use PlistBuddy.
+#
 #
 # Usage (version 0.2 - version 0.5):
 #
@@ -53,8 +50,18 @@
 #           - ./AppleHDA8Series.sh 892 /System/Library/Extensions
 #           - ./AppleHDA8Series.sh /System/Library/Extensions 892
 #
+# Usage (version 1.5 and greater):
+#
+#           - ./AppleHDA8Series.sh [hald]
+#
+# Examples:
+#           - ./AppleHDA8Series.sh
+#           - ./AppleHDA8Series.sh -a 892
+#           - ./AppleHDA8Series.sh -a 892 -l 3
+#           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
+#
 
-gScriptVersion=1.4
+gScriptVersion=1.5
 
 #
 # Setting the debug mode (default off).
@@ -190,7 +197,6 @@ function _DEBUG_DUMP
       echo "$1"
   fi
 }
-
 
 
 #
@@ -653,43 +659,100 @@ function _creatInfoPlist()
   echo '</plist>'                                                                                                    >> $gInfoPlist
 }
 
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _getScriptArguments
+{
+  #
+  # Are we fired up with arguments?
+  #
+  if [ $# -gt 0 ];
+    then
+      #
+      # Yes. Do we have a single (-help) argument?
+      #
+      if [[ $# -eq 1 && "$1" =~ "-h" ]];
+        then
+          echo 'Usage: ./AppleHDA8Series.sh [-hald]'
+          echo '    -h print help info'
+          echo '    -a target ALC'
+          echo '    -l target layout-id'
+          echo '    -d target directory'
+          echo ''
+          exit 0
+        else
+          #
+          # Figure out what arguments are used.
+          #
+          while [ "$1" != "" ];
+          do
+            #
+            # Is this a valid script argument flag?
+            #
+            if [[ "${1}" =~ ^[-aldALD]+$ ]];
+              then
+                #
+                # Yes. Figure out what flag it is.
+                #
+                case "${1}" in
+                  -a) shift
+
+                      if [[ "$1" =~ ^[0-9]+$ ]];
+                        then
+                          #
+                          # Make this our target ALC.
+                          #
+                          let gTargetALC=$1
+                          _DEBUG_DUMP "Setting gTargetALC to     : ${gTargetALC}"
+                      fi
+                      ;;
+                  -l) shift
+
+                      if [[ "$1" =~ ^[0-9]+$ ]];
+                        then
+                          #
+                          # Make this our target LayoutID.
+                          #
+                          let gTargetLayoutID=$1
+                          _DEBUG_DUMP "Setting gTargetLayoutID to: ${gTargetLayoutID}"
+                      fi
+                      ;;
+                  -d) shift
+
+                      if [[ "$1" =~ ^[a-zA-Z/*?]+$ ]];
+                        then
+                          #
+                          # Make this our target directory.
+                          #
+                          gTargetDirectory=$(echo "$1" | sed 's/\/$//')
+                          echo "Setting gTargetDirectory to: ${gTargetDirectory}"
+                      fi
+                      shift
+                      ;;
+                esac
+              else
+                echo NO
+            fi
+            shift;
+          done;
+      fi
+  fi
+}
+
+
 #
 #--------------------------------------------------------------------------------
 #
 
 function main()
 {
+  _getScriptArguments "$@"
   _showHeader
-  #
-  # Are we fired up with arguments?
-  #
-  if [ $# -ge 0 ]; then
-    #
-    # Yes. Is the first argument a numeric value?
-    #
-    if [[ "$1" =~ ^[0-9]+$ ]];
-      then
-        #
-        # Yes. Make this our target ALC.
-        #
-        local targetALC=$1
-      else
-        #
-        # No. Is the second argument a numeric value?
-        #
-        if [[ "$2" =~ ^[0-9]+$ ]]; then
-          #
-          # Yes. Make this our target ALC.
-          #
-          local targetALC=$2
-        fi
-    fi
-
-    _DEBUG_DUMP "AppleHDA8Series.sh was launched with a target ALC${targetALC}\n"
-  fi
-
-  _initCodecID $targetALC
-  _initLayoutID
+  _initCodecID $gTargetALC
+  _initLayoutID $gTargetLayoutID
 
   #
   # Is this the first run?
