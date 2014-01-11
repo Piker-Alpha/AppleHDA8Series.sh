@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 1.6 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 1.7 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -22,6 +22,9 @@
 #			- Function _selectLayoutID added (Pike R. Alpha, January 2014)
 #			- New/more flexible script arguments added (Pike R. Alpha, January 2014)
 #			- Optional (-b AppleHDA) bin-patching added (Pike R. Alpha, January 2014)
+#			- Error in gSupportedCodecs for ALC 898 fixed, thanks to Toleda  (Pike R. Alpha, January 2014)
+#			- Copying kext to /S*/L*/Extensions failed due to a missing flag (-r), thanks to Toleda  (Pike R. Alpha, January 2014)
+#			- Confirmation for layout-id showed the wrong layout-id, thanks to Toleda  (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -73,7 +76,7 @@
 #           - ./AppleHDA8Series.sh -b AppleHDA
 #
 
-gScriptVersion=1.6
+gScriptVersion=1.7
 
 #
 # Setting the debug mode (default off).
@@ -147,7 +150,7 @@ gSupportedCodecs=(
 283904136,0x10EC0888,888,1.2.3
 283904137,0x10EC0889,889,1.2.3
 283904146,0x10EC0892,892,1.2.3
-283904152,0x10EC0898,898,1.2.3
+283904153,0x10EC0898,898,1.2.3
 283904256,0x10EC0900,1150,1.2
 )
 
@@ -339,6 +342,7 @@ function _initLayoutID()
           _DEBUG_DUMP "ACPI Device (HDEF) {} found"
           #
           # Get layout-id from ioreg data.
+          #
           local layoutID=$(echo $ioregHDEFData | grep layout-id | sed -e 's/.*<//' -e 's/>//')
           #
           # Check value of layout-id (might still be empty).
@@ -362,12 +366,13 @@ function _initLayoutID()
                   #
                   # Yes. Ask if we should use this layout-id.
                   #
-                  question="Do you want to use [${gLayoutID}] as the layout-id (y/n)? "
+                  question="Do you want to use [${layoutID}] as the layout-id (y/n)? "
 
                   read -p "$question" choice
                   case "$choice" in
                     y|Y)
-                      echo "Notice: Now using layout-id: ${gLayoutID}"
+                      gLayoutID=$layoutID
+                      echo "Notice: Now using layout-id: ${layoutID}"
                       ;;
 
                     *) #
@@ -989,7 +994,7 @@ function main()
   _DEBUG_DUMP 'Fixing file ownership ...'
   chown -R root:wheel "${gTargetDirectory}/${gKextName}.kext"
 
-  if [[ "$gTargetDirectory" != "$gExtensionsDirectory" ]];
+  if [[ "${gTargetDirectory}" != "${gExtensionsDirectory}" ]];
     then
       _DEBUG_DUMP "Checking kext with kextutil ..."
       #
@@ -998,7 +1003,7 @@ function main()
       # -n = Neither load the kext nor send personalities to the kernel.
       # -k = Link against the given kernel_file.
       #
-      kextutil -qtnk /mach_kernel "$gTargetDirectory/${gKextName}.kext"
+      kextutil -qtnk /mach_kernel "${gTargetDirectory}/${gKextName}.kext"
 
       if (($? == 0));
         then
@@ -1006,8 +1011,8 @@ function main()
 
           read -p "Do you want to copy ${gKextName}.kext to: ${gExtensionsDirectory}? (y/n) " choice
           case "$choice" in
-            y|Y ) cp "$gTargetDirectory/${gKextName}.kext" "$gExtensionsDirectory"
-                  gTargetDirectory = "$gExtensionsDirectory"
+            y|Y ) cp -r "${gTargetDirectory}/${gKextName}.kext" "$g{ExtensionsDirectory}"
+                  gTargetDirectory = "${gExtensionsDirectory}"
             ;;
           esac
       fi
@@ -1015,12 +1020,12 @@ function main()
   #
   # Check target directory.
   #
-  if [[ "$gTargetDirectory" == "$gExtensionsDirectory" ]]; then
+  if [[ "${gTargetDirectory}" == "${gExtensionsDirectory}" ]]; then
     #
     # Conditionally touch the Extensions directory.
     #
     _DEBUG_DUMP 'Triggering a kernelcache refresh ...'
-    touch "$gExtensionsDirectory"
+    touch "${gExtensionsDirectory}"
 
     read -p "Do you want to reboot now? (y/n) " choice2
     case "$choice2" in
