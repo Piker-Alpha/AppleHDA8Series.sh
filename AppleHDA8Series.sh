@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 1.5 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 1.6 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -21,6 +21,7 @@
 #			- Function _initLayoutID improved (Pike R. Alpha, January 2014)
 #			- Function _selectLayoutID added (Pike R. Alpha, January 2014)
 #			- New/more flexible script arguments added (Pike R. Alpha, January 2014)
+#			- Optional (-b AppleHDA) bin-patching added (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -50,7 +51,7 @@
 #           - ./AppleHDA8Series.sh 892 /System/Library/Extensions
 #           - ./AppleHDA8Series.sh /System/Library/Extensions 892
 #
-# Usage (version 1.5 and greater):
+# Usage (version 1.5):
 #
 #           - ./AppleHDA8Series.sh [hald]
 #
@@ -60,8 +61,19 @@
 #           - ./AppleHDA8Series.sh -a 892 -l 3
 #           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
 #
+# Usage (version 1.6 and greater):
+#
+#           - ./AppleHDA8Series.sh [hald]
+#
+# Examples:
+#           - ./AppleHDA8Series.sh
+#           - ./AppleHDA8Series.sh -a 892
+#           - ./AppleHDA8Series.sh -a 892 -l 3
+#           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
+#           - ./AppleHDA8Series.sh -b AppleHDA
+#
 
-gScriptVersion=1.5
+gScriptVersion=1.6
 
 #
 # Setting the debug mode (default off).
@@ -150,6 +162,11 @@ gDownloadLink="https://raw.github.com/toleda/audio_ALC892/master/892.zip"
 gProductVersion="$(sw_vers -productVersion)"
 
 #
+# This gets initialised later on, when required.
+#
+gAppleHDABinPatch=""
+
+#
 # Output styling.
 #
 STYLE_RESET="[0m"
@@ -234,6 +251,64 @@ function _selectLayoutID()
 #--------------------------------------------------------------------------------
 #
 
+function _initAppleHDABinPatch
+{
+  #
+  # Are we asked to bin-patch AppleHDAController (think HDMI support)?
+  #
+  if [[ $1 == "AppleHDAController" ]];
+    then
+      #
+      #  Yes. Initialise the bin-patch data for the AppleHDAController executable.
+      #
+      echo "Error: AppleHDAController bin-patching is currently NOT supported!"
+
+    elif [[ $1 == "AppleHDA" ]];
+      then
+        #
+        #  Select a bin-patch for the AppleHDA executable.
+        #
+        case "${gTargetALC}" in
+          885 ) #
+                # Default off. Use command line arguments to patch the binary!
+                # gAppleHDABinPatch = 's|\x8b\x19\xd4\x11|\x85\x08\xec\x10|g'
+                #
+                # Note: Currently not supported (TODO: next version I guess).
+                ;;
+          887 ) gAppleHDABinPatch="s|\x8b\x19\xd4\x11|\x87\x08\xec\x10|g"
+                ;;
+
+          888 ) gAppleHDABinPatch="s|\x8b\x19\xd4\x11|\x88\x08\xec\x10|g"
+                ;;
+
+          889 ) gAppleHDABinPatch="s|\x8b\x19\xd4\x11|\x89\x08\xec\x10|g"
+                ;;
+
+          892 ) gAppleHDABinPatch="s|\x8b\x19\xd4\x11|\x92\x08\xec\x10|g"
+                ;;
+
+          899 ) gAppleHDABinPatch="s|\x8b\x19\xd4\x11|\x99\x08\xec\x10|g"
+                ;;
+
+          1150) gAppleHDABinPatch="s|\x8b\x19\xd4\x11|\x00\x09\xec\x10|g"
+                ;;
+
+             *) #
+                # We get here when -b AppleHDA is used without -a ALC in front of
+                # it and that is not an error, but in that case we want it to
+                # reinitialise the bin-patch data later on. After the ALC is selected.
+                #
+                gAppleHDABinPatch="undetermined"
+                _DEBUG_DUMP "-b AppleHDA used without -a ALC being detected!"
+                ;;
+        esac
+  fi
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
 function _initLayoutID()
 {
   #
@@ -305,7 +380,7 @@ function _initLayoutID()
           fi
         else
           echo 'Error: ACPI Device (HDEF) {} NOT found!'
-          echo '       ACPI tables appear to be broken and require patching!'
+          echo '       ACPI tables appear to be broken and require (manual) patching!'
           echo 'Aborting ...'
           exit 1
       fi
@@ -424,6 +499,16 @@ function _initCodecID()
            # Restore the default delimiter.
            #
            IFS=$ifs
+           #
+           # Do we have a bin-patch string?
+           #
+           if [[ $gAppleHDABinPatch != "" ]];
+             then
+               #
+               # Yes. Re-init it (we have a new target ALC).
+               #
+               _initAppleHDABinPatch "AppleHDA"
+             fi
            ;;
 
         *) echo "Invalid selection, retrying ..."
@@ -664,6 +749,16 @@ function _creatInfoPlist()
 #--------------------------------------------------------------------------------
 #
 
+function _invalidArgumentError
+{
+  echo "Error: Invalid argument ${1} detected. Aborting ...\n"
+  exit 1
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
 function _getScriptArguments
 {
   #
@@ -676,11 +771,15 @@ function _getScriptArguments
       #
       if [[ $# -eq 1 && "$1" =~ "-h" ]];
         then
-          echo 'Usage: ./AppleHDA8Series.sh [-hald]'
+          echo 'Usage: ./AppleHDA8Series.sh [-haldb]'
           echo '    -h print help info'
           echo '    -a target ALC'
           echo '    -l target layout-id'
           echo '    -d target directory'
+          echo '    -b AppleHDA'
+# TODO: Make this more flexible / add support for 885 bin-patching.
+#         echo '    -b AppleHDA:search|replace'
+#         echo '    -b AppleHDAController:search|replace'
           echo ''
           exit 0
         else
@@ -692,7 +791,7 @@ function _getScriptArguments
             #
             # Is this a valid script argument flag?
             #
-            if [[ "${1}" =~ ^[-aldALD]+$ ]];
+            if [[ "${1}" =~ ^[-albdALBD]+$ ]];
               then
                 #
                 # Yes. Figure out what flag it is.
@@ -707,8 +806,11 @@ function _getScriptArguments
                           #
                           let gTargetALC=$1
                           _DEBUG_DUMP "Setting gTargetALC to     : ${gTargetALC}"
+                        else
+                          _invalidArgumentError "$1"
                       fi
                       ;;
+
                   -l) shift
 
                       if [[ "$1" =~ ^[0-9]+$ ]];
@@ -718,8 +820,23 @@ function _getScriptArguments
                           #
                           let gTargetLayoutID=$1
                           _DEBUG_DUMP "Setting gTargetLayoutID to: ${gTargetLayoutID}"
+                        else
+                          _invalidArgumentError "$1"
                       fi
                       ;;
+
+                  -b) shift
+
+                      if [[ "$1" =~ ^"AppleHDA" ]];
+                        then
+                          _initAppleHDABinPatch "$1"
+                        else
+                          _invalidArgumentError "$1"
+                      fi
+
+                      shift
+                      ;;
+
                   -d) shift
 
                       if [[ "$1" =~ ^[a-zA-Z/*?]+$ ]];
@@ -729,12 +846,14 @@ function _getScriptArguments
                           #
                           gTargetDirectory=$(echo "$1" | sed 's/\/$//')
                           echo "Setting gTargetDirectory to: ${gTargetDirectory}"
+                        else
+                          _invalidArgumentError "$1"
                       fi
                       shift
                       ;;
                 esac
               else
-                echo NO
+                _invalidArgumentError "$1"
             fi
             shift;
           done;
@@ -807,15 +926,33 @@ function main()
      else
        cp "${gSourceDirectory}/layout${gLayoutID}.xml" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/"
   fi
+
   #
-  # Add MacOS directory for our symbolic link.
+  # Add MacOS directory for the AppleHDA executable/the symbolic link to the AppleHDA executable.
   #
   mkdir "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/MacOS"
 
   #
-  # Create symbolic link to executable.
+  # Are we supposed to bin-patch the AppleHDA executable?
   #
-  ln -fs "${gExtensionsDirectory}/AppleHDA.kext/Contents/MacOS/AppleHDA" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/MacOS/AppleHDA"
+  if [[ $gAppleHDABinPatch != "" ]];
+    then
+      #
+      # Yes. Copy the AppleHDA executable to AppleHDALoader.kext/Contents/MacOS so that we can bin-patch it.
+      #
+      echo 'Copying AppleHDA ...'
+      cp "${gExtensionsDirectory}/AppleHDA.kext/Contents/MacOS/AppleHDA" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/MacOS/AppleHDA"
+      #
+      # Now call Perl to bin-patch the executable.
+      #
+      echo 'Bin-patching AppleHDA ...'
+      /usr/bin/perl -pi -e '$gAppleHDABinPatch' "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/MacOS/AppleHDA"
+    else
+      #
+      # Create symbolic link to executable.
+      #
+      ln -fs "${gExtensionsDirectory}/AppleHDA.kext/Contents/MacOS/AppleHDA" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/MacOS/AppleHDA"
+  fi
 
   #
   # Create AppleHDA892.kext/Contents/Info.plist
