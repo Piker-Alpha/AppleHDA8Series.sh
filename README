@@ -1,4 +1,24 @@
-AppleHDA8Series.sh v1.3 Copyright (c) 2013-2014 by Pike R. Alpha
+Usage (version 1.8 and greater):
+
+- ./AppleHDA8Series.sh [halbd]
+
+Examples:
+
+ - ./AppleHDA8Series.sh
+ - ./AppleHDA8Series.sh -a 892
+ - ./AppleHDA8Series.sh -a 892 -l 3
+ - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
+ - ./AppleHDA8Series.sh -b AppleHDA (uses built-in patch pattern)
+ - ./AppleHDA8Series.sh -b AppleHDA:\x8b\x19\xd4\x11,\x92\x08\xec\x10
+
+Here is the output of my run: 
+
+./AppleHDA8Series.sh -b AppleHDA
+
+This script must be run as root!
+Password:
+
+AppleHDA8Series.sh v1.8 Copyright (c) 2013-2014 by Pike R. Alpha
                     patched XML files by Toleda and contributors
 ----------------------------------------------------------------
 The supported Realtek ALC codecs for AppleHDA8Series.sh are:
@@ -8,39 +28,39 @@ The supported Realtek ALC codecs for AppleHDA8Series.sh are:
     [3] Realtek ALC  888 (0x10EC0888 / 283904136)
     [4] Realtek ALC  889 (0x10EC0889 / 283904137)
     [5] Realtek ALC  892 (0x10EC0892 / 283904146)
-    [6] Realtek ALC  898 (0x10EC0898 / 283904152)
+    [6] Realtek ALC  898 (0x10EC0899 / 283904153)
     [7] Realtek ALC 1150 (0x10EC0900 / 283904256)
 
-Please choose the desired codec for the hardware: 4
+Please choose the desired codec for the hardware: 5
+Do you want to use [3] as the layout-id (y/n)? y
 Looking in /System/Library/Extensions/AppleHDA.kext for the ConfigData
 Looking in /System/Library/Extensions/FakeSMC.kext for the ConfigData
-Error: ConfigData not found!
-Downloading https://raw.github.com/toleda/audio_ALC889/master/889.zip ...
-
+Error: ConfigData NOT found!
+Downloading https://raw.github.com/toleda/audio_ALC892/master/892.zip ...
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
-100 17218  100 17218    0     0  65143      0 --:--:-- --:--:-- --:--:-- 71741
+100 18162  100 18162    0     0  59137      0 --:--:-- --:--:-- --:--:-- 59159
 
-Unzipping Archive:  /tmp/ALC889.zip
-   creating: /tmp/889/
-  inflating: /tmp/889/Info-84.plist  
-  inflating: /tmp/889/Info-85.plist  
-  inflating: /tmp/889/Info-90.plist  
-  inflating: /tmp/889/Info-91.plist  
- extracting: /tmp/889/layout1.xml.zlib  
- extracting: /tmp/889/layout2.xml.zlib  
- extracting: /tmp/889/layout3.xml.zlib  
-  inflating: /tmp/889/Platforms.xml.zlib  
+Unzipping Archive:  /tmp/ALC892.zip
 
-The available Info.plist files for the ALC 889 are:
+The available Info.plist files for the ALC 892 are:
 
-[1] /tmp/889/Info-84.plist
-[2] /tmp/889/Info-85.plist
-[3] /tmp/889/Info-90.plist
-[4] /tmp/889/Info-91.plist
+[1] /tmp/892/Info-84.plist
+[2] /tmp/892/Info-85.plist
+[3] /tmp/892/Info-90.plist
+[4] /tmp/892/Info-91.plist
 
 Please choose the matching Info.plist (1/4) 4
 
-Looking in: /tmp/889/Info-91.plist for the ConfigData
-Error: ConfigData for Realtek ALC 889 with layout-id:892 was NOT found!
-Aborting ...
+Looking in: /tmp/892/Info-91.plist for the ConfigData
+ConfigData for Realtek ALC 892 found!
+------------------------------------------------------------
+IUccECFHHUAhRx4RIUcfkCFXHCAhVx0QIVceASFXHwEhZxzwIWcdIWceIWcfQCF3HPAhdx0hdx4hdx9AIYccQCGHHZAhhx6gIYcfkCGXHGAhlx2QIZcegSGXHwIhpxxQIacdMCGnHoEhpx8BIbcccCG3HUAhtx4hIbcfAiHnHJAh5x1hIeceSyHnHwEh9xzwIfcdIfceIfcfQCEXHPAhFx0hFx4hFx9AXGMK
+------------------------------------------------------------
+Creating AppleHDA892.kext in: /Users/chief/Projects/AppleHDA8Series.sh
+AppleHDA892.kext appears to be loadable (including linkage for on-disk libraries).
+Do you want to copy AppleHDA892.kext to: /System/Library/Extensions? (y/n) y
+Do you want to reboot now? (y/n) y
+reboot: / is busy updating; waiting for lock
+
+After this the system rebooted and audio worked!
