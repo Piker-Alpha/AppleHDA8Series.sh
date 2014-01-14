@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 1.8 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 1.9 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -25,6 +25,10 @@
 #			- Error in gSupportedCodecs for ALC 898 fixed, thanks to Toleda  (Pike R. Alpha, January 2014)
 #			- Copying kext to /S*/L*/Extensions failed due to a missing flag (-r), thanks to Toleda  (Pike R. Alpha, January 2014)
 #			- Confirmation for layout-id showed the wrong layout-id, thanks to Toleda  (Pike R. Alpha, January 2014)
+#			- Made errors and warning messages stand out more (Pike R. Alpha, January 2014)
+#			- AppleHDAController bin-patching added (Pike R. Alpha, January 2014)
+#			- Code/style inconsistencies fixed (Pike R. Alpha, January 2014)
+#			- Better feedback, output format errors fixed (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -75,7 +79,7 @@
 #           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
 #           - ./AppleHDA8Series.sh -b AppleHDA
 #
-# Usage (version 1.8 and greater):
+# Usage (version 1.8):
 #
 #           - ./AppleHDA8Series.sh [halbd]
 #
@@ -87,8 +91,23 @@
 #           - ./AppleHDA8Series.sh -b AppleHDA (uses built-in patch pattern)
 #           - ./AppleHDA8Series.sh -b AppleHDA:\x8b\x19\xd4\x11,\x92\x08\xec\x10
 #
+# Usage (version 1.9 and greater):
+#
+#           - ./AppleHDA8Series.sh [halbd]
+#
+# Examples:
+#           - ./AppleHDA8Series.sh
+#           - ./AppleHDA8Series.sh -a 892
+#           - ./AppleHDA8Series.sh -a 892 -l 3
+#           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
+#           - ./AppleHDA8Series.sh -b AppleHDA (uses built-in patch pattern)
+#           - ./AppleHDA8Series.sh -b AppleHDA:\x8b\x19\xd4\x11,\x92\x08\xec\x10
+#           - ./AppleHDA8Series.sh -b AppleHDA -b AppleHDAController
+#           - ./AppleHDA8Series.sh -b AppleHDA:\x8b\x19\xd4\x11,\x92\x08\xec\x10 -b AppleHDAController:\x0c\x0c\x00\x00\x75\x61\xeb\x30,\x0c\x0c\x00\x00\x75\x61\xeb\x0e
+#
 
-gScriptVersion=1.8
+
+gScriptVersion=1.9
 
 #
 # Setting the debug mode (default off).
@@ -177,9 +196,10 @@ gDownloadLink="https://raw.github.com/toleda/audio_ALC892/master/892.zip"
 gProductVersion="$(sw_vers -productVersion)"
 
 #
-# This gets initialised later on, when required.
+# These will be initialised later on, when required.
 #
-gAppleHDABinPatch=""
+gAppleHDAPatchPattern=""
+gAppleHDAControllerPatchPattern=""
 
 #
 # Change this to 0 if you don't want additional styling (bold/underlined).
@@ -231,7 +251,7 @@ function _DEBUG_DUMP()
 {
   if [[ $DEBUG -eq 1 ]];
     then
-      echo "$1"
+      printf "$1"
   fi
 }
 
@@ -271,7 +291,7 @@ function _PRINT_ERROR()
 function _selectLayoutID()
 {
   let index=0
-  printf "\nThe available layout-id's for the ALC ${gKextID} are:\n"
+  printf "\nThe available layout-id's for the ALC ${gKextID} are:\n\n"
 
   for layout in ${gSupportedLayoutIDs[@]}
   do
@@ -288,7 +308,7 @@ function _selectLayoutID()
       let gLayoutID=$selection
       ;;
 
-    *) _PRINT_ERROR "Invalid selection!"
+    *) _PRINT_ERROR "Invalid selection!\n"
       _initLayoutID $1
       ;;
   esac
@@ -314,16 +334,16 @@ function _checkHDEFProperties()
 
   if [[ $(cat /tmp/HDEF.txt | grep -o "MaximumBootBeepVolume") == "MaximumBootBeepVolume" ]];
     then
-      _DEBUG_DUMP "MaximumBootBeepVolume property found"
+      _DEBUG_DUMP "MaximumBootBeepVolume property found\n"
     else
-      _PRINT_WARNING "'MaximumBootBeepVolume' property NOT found (will show up as Sound assertion in: system.log)"
+      _PRINT_WARNING "'MaximumBootBeepVolume' property NOT found (will show up as Sound assertion in: system.log)\n"
   fi
 
   if [[ $(cat /tmp/HDEF.txt | grep -o "PinConfigurations") == "PinConfigurations" ]];
     then
-      _DEBUG_DUMP "PinConfigurations property found"
+      _DEBUG_DUMP "PinConfigurations property found\n"
     else
-      _PRINT_ERROR "'PinConfigurations property NOT found (may result in unexpected behaviour)!"
+      _PRINT_ERROR "'PinConfigurations property NOT found (may result in unexpected behaviour)!\n"
   fi
 }
 
@@ -332,91 +352,112 @@ function _checkHDEFProperties()
 #--------------------------------------------------------------------------------
 #
 
-function _initAppleHDABinPatch()
+function _isBinaryAlreadyPatched()
 {
+  local targetBinary=$1
+  local commandString=$2
+  local grepPattern=$(echo $commandString | sed 's/.*|//g')
+  echo "grepPattern: $grepPattern"
+
   #
-  # Are we asked to bin-patch AppleHDAController (think HDMI support)?
+  # Do we have a target binary?
   #
-  if [[ ${1:0:19} == "AppleHDAController:" ]];
+  if [[ -e "$targetBinary" ]];
     then
       #
-      #  Yes. Initialise the bin-patch data for the AppleHDAController executable.
+      # Yes. Check the target binary to see if it is already patched.
       #
-      _PRINT_ERROR "AppleHDAController bin-patching is currently NOT supported!"
+      /usr/bin/grep "$grepPattern" "$targetBinary"
+      #
+      # Check the return status.
+      #
+      if [[ $? == 0 ]];
+        then
+          #
+          # If we come here then the binary is already patched.
+          #
+          local targetBinaryName=$(echo $targetBinary | sed 's/.*\/MacOS\///')
+          echo "targetBinaryName: $targetBinaryName"
 
-    elif [[ ${1:0:8} == "AppleHDA" ]];
+          _PRINT_WARNING "${targetBinaryName} binary is already patched, skipping ...\n"
+        else
+          printf "No match found, prepaing for binary patch. "
+          return 0
+      fi
+  fi
+
+  return 1
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _initBinPatchPattern()
+{
+  local commandString=$1
+  #
+  # Should we init a bin-patch pattern for the AppleHDA binary?
+  #
+  if [[ ${commandString:0:19} == "AppleHDAController:" ]];
+    then
+      #
+      # Yes. Initialise pattern for AppleHDAController
+      #
+      gAppleHDAControllerPatchPattern=$(echo $commandString | sed 's/AppleHDA.*://' | sed 's/x/\\x/g' | sed 's/,/|/g')
+    #
+    # Or should we init a bin-patch pattern for the AppleHDA binary?
+    #
+    elif [[ ${commandString:0:8} == "AppleHDA" ]];
       then
         #
-        #  Select a bin-patch for the AppleHDA executable.
+        # Yes. Are we called with: -b AppleHDA:search_data,replace_data?
         #
-        case "${gTargetALC}" in
-          885 ) #
-                # Default off. Use command line arguments to patch the binary!
-                # gAppleHDABinPatch = 's|\x8b\x19\xd4\x11|\x85\x08\xec\x10|g'
-                #
-                # Note: Currently not supported (TODO: next version I guess).
-                ;;
-          887 ) gAppleHDABinPatch="\x8b\x19\xd4\x11|\x87\x08\xec\x10"
-                ;;
-
-          888 ) gAppleHDABinPatch="\x8b\x19\xd4\x11|\x88\x08\xec\x10"
-                ;;
-
-          889 ) gAppleHDABinPatch="\x8b\x19\xd4\x11|\x89\x08\xec\x10"
-                ;;
-
-          892 ) gAppleHDABinPatch="\x8b\x19\xd4\x11|\x92\x08\xec\x10"
-                ;;
-
-          899 ) gAppleHDABinPatch="\x8b\x19\xd4\x11|\x99\x08\xec\x10"
-                ;;
-
-          1150) gAppleHDABinPatch="\x8b\x19\xd4\x11|\x00\x09\xec\x10"
-                ;;
-
-             *) #
-                # We get here when -b AppleHDA is used without -a ALC in front of
-                # it and that is not an error, but in that case we want it to
-                # reinitialise the bin-patch data later on. After the ALC is selected.
-                #
-                gAppleHDABinPatch="undetermined"
-                _DEBUG_DUMP "'-b AppleHDA' given but '-a ALC NNN' is missing!"
-                ;;
-        esac
-
-        #
-        # Is the -b flag with "AppleHDA:s|search_data|replace_data|g" used?
-        #
-        if [[ ${1:0:9} == "AppleHDA:" ]];
+        if [[ ${commandString:8:1} == ":" ]];
           then
             #
-            # Yes. Strip off 'AppleHDA:' and add missing \ and | characters.
+            # Yes. Initialise pattern for the AppleHDA executable.
             #
-            local binPatchPattern=$(echo $1 | sed 's/AppleHDA://' | sed 's/x/\\x/g' | sed 's/,/|/g')
-            _DEBUG_DUMP $gAppleHDABinPatch
+            gAppleHDAPatchPattern=$(echo $commandString | sed 's/AppleHDA.*://' | sed 's/x/\\x/g' | sed 's/,/|/g')
+          else
+            #
+            #  No. Select default pattern for the AppleHDA executable.
+            #
+            case "${gTargetALC}" in
+              885 ) #
+                    # Default off. Use command line arguments to patch the binary
+                    #
+                    echo "ALC 885 is NOT pre-defined. Please use: ./AppleHDA8Series.sh -b AppleHDA:\x8b\x19\xd4\x11,\x85\x08\xec\x10"
+                    ;;
 
-            local grepPattern=$(echo $binPatchPattern | sed 's/.*|//g')
-            _DEBUG_DUMP $grepPattern
-            #
-            # Check to see if the target binary isn't already patched.
-            #
-            /usr/bin/grep "$grepPattern" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/MacOS/AppleHDA"
-            #
-            # Check status for success.
-            #
-            if (($? == 0));
-              then
-                if [[ $gExtraStyling -eq 1 ]];
-                  then
-                    printf "${STYLE_BOLD}Warning:${STYLE_RESET} AppleHDA binary is already patched, skipping ..."
-                  else
-                    printf "Warning: AppleHDA binary is already patched, skipping ..."
-                fi
-                gAppleHDABinPatch=""
-              else
-                printf "Ok. No match found. Initialising patch data ..."
-                gAppleHDABinPatch=$binPatchPattern
-            fi
+              887 ) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x87\x08\xec\x10"
+                    ;;
+
+              888 ) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x88\x08\xec\x10"
+                    ;;
+
+              889 ) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x89\x08\xec\x10"
+                    ;;
+
+              892 ) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x92\x08\xec\x10"
+                    ;;
+
+              899 ) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x99\x08\xec\x10"
+                    ;;
+
+              1150) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x00\x09\xec\x10"
+                    ;;
+
+                 *) #
+                    # We get here when -b AppleHDA is used without -a ALC in front of
+                    # it and that is not an error, but in that case we want it to
+                    # reinitialise the bin-patch data later on. After the ALC is selected.
+                    #
+                    gAppleHDAPatchPattern="undetermined"
+                    _DEBUG_DUMP "'-b AppleHDA' given but '-a ALC NNN' is missing!"
+                    ;;
+            esac
         fi
   fi
 }
@@ -452,12 +493,12 @@ function _initLayoutID()
       #
       if [[ $(cat /tmp/HDEF.txt | grep -o "HDEF@1B") == "HDEF@1B" ]];
         then
-          _DEBUG_DUMP "ACPI Device (HDEF) {} found"
+          _DEBUG_DUMP "ACPI Device (HDEF) {} found\n"
           #
           # Get layout-id from ioreg data.
           #
           local layoutID=$(cat /tmp/HDEF.txt | grep layout-id | sed -e 's/.*<//' -e 's/>//')
-          _DEBUG_DUMP "layoutID: $layoutID"
+          _DEBUG_DUMP "layoutID: $layoutID\n"
           #
           # Check value of layout-id (might still be empty).
           #
@@ -490,9 +531,9 @@ function _initLayoutID()
               esac
           fi
         else
-          _PRINT_ERROR "ACPI Device (HDEF) {} NOT found!"
+          _PRINT_ERROR "ACPI Device (HDEF) {} NOT found!\n"
           echo '       ACPI tables appear to be broken and require (manual) patching!'
-          _PRINT_ERROR "Aborting ..."
+          _PRINT_ERROR "Aborting ...\n"
           exit 1
       fi
   fi
@@ -509,12 +550,12 @@ function _initCodecID()
   #
   # Are we called with a target ALC?
   #
-# if [[ $# -eq 1 ]]; then
-  if [[ $gTargetALC != "" ]]; then
-    #
-    # Yes. Set our trigger (makes us check for a target ALC later on).
-    #
-    let selection=-1
+  if [[ $gTargetALC != "" ]];
+    then
+      #
+      # Yes. Set our trigger (makes us check for a target ALC later on).
+      #
+      let selection=-1
   fi
   #
   # Required for 'retrying...'.
@@ -552,7 +593,6 @@ function _initCodecID()
         #
         # Yes. Is this our target ALC?
         #
-#       if [[ $1 == ${data[2]} ]];
         if [[ $gTargetALC == ${data[2]} ]];
           then
             #
@@ -571,7 +611,6 @@ function _initCodecID()
   #
   printf "\n"
 
-# if [[ $# -eq 1 ]];
   if [[ $gTargetALC != "" ]];
     then
       #
@@ -617,12 +656,12 @@ function _initCodecID()
            #
            # Do we have a bin-patch string?
            #
-           if [[ $gAppleHDABinPatch == "undetermined" ]];
+           if [[ $gAppleHDAPatchPattern == "undetermined" ]];
              then
                #
                # Yes. Re-init it (we have a new target ALC).
                #
-               _initAppleHDABinPatch "AppleHDA"
+               _initBinPatchPattern "AppleHDA"
              fi
            ;;
 
@@ -632,7 +671,6 @@ function _initCodecID()
            #
            # And try again.
            #
-#          _initCodecID $1
            _initCodecID
            ;;
   esac
@@ -662,19 +700,21 @@ function _initConfigData()
 
       if [[ $codecID =~ "Does Not Exist" ]];
         then
-          _DEBUG_DUMP "Error: '$commandString' Not Found!"
+          _DEBUG_DUMP "Error: '$commandString' Not Found!\n"
           return 0
         else
-          if [[ $codecID -eq $gCodecID ]]; then
-            _DEBUG_DUMP "Target CodecID found ..."
-            local layoutID=$(/usr/libexec/PlistBuddy -c "${commandString}LayoutID" $sourceFile)
+          if [[ $codecID -eq $gCodecID ]];
+            then
+              _DEBUG_DUMP "Target CodecID found ...\n"
+              local layoutID=$(/usr/libexec/PlistBuddy -c "${commandString}LayoutID" $sourceFile)
 
-            if [[ $layoutID -eq $gLayoutID ]]; then
-              _DEBUG_DUMP "Target LayoutID found ...\nGetting ConfigData ..."
+              if [[ $layoutID -eq $gLayoutID ]];
+                then
+                  _DEBUG_DUMP "Target LayoutID found ...\nGetting ConfigData ...\n"
 
-              gExtractedConfigData=$(/usr/libexec/PlistBuddy -c "${commandString}ConfigData" $sourceFile)
-              return 1
-            fi
+                  gExtractedConfigData=$(/usr/libexec/PlistBuddy -c "${commandString}ConfigData" $sourceFile)
+                  return 1
+              fi
           fi
       fi
     done
@@ -708,20 +748,20 @@ function _initConfigData()
           # Unzip the downloaded file.
           #
           echo ''
-          _DEBUG_DUMP 'Download Done'
-          printf 'Unzipping '
+          _DEBUG_DUMP "Download Done!\n"
+          printf "Unzipping "
           unzip -u "/tmp/ALC${gKextID}.zip" -d "/tmp/"
           #
           # We <em>should</em> now have the Info.plist so let's do another search for the ConfigData,
           # but first convert 'gProductVersion' to something that Toleda is using (example: 10.9.2 -> 92)
           #
-          local plistID=99 # $(gProductVersion | sed 's/[10\./]//g')
+          local plistID=$(echo $gProductVersion | sed 's/[10\./]//g')
           #
           # Start by checking if the file exists.
           #
           if [[ ! -e "/tmp/${gKextID}/Info-${plistID}.plist" ]];
             then
-              _DEBUG_DUMP "Warning: Info-${plistID}.plist not found!"
+              _PRINT_WARNING "Info-${plistID}.plist not found!\n"
               #
               # No. File does not exist. Create list with available plist files.
               #
@@ -752,7 +792,7 @@ function _initConfigData()
                        __searchForConfigData "${plistNames[${selection} - 1]}"
                        ;;
 
-                    *) _PRINT_ERROR "Invalid selection!"
+                    *) _PRINT_ERROR "Invalid selection!\n"
                        return 0
                        ;;
                   esac
@@ -812,7 +852,7 @@ function _creatInfoPlist()
   echo '	<key>CFBundleDevelopmentRegion</key>'                                                                    >> $gInfoPlist
   echo '	<string>English</string>'                                                                                >> $gInfoPlist
   echo '	<key>CFBundleGetInfoString</key>'                                                                        >> $gInfoPlist
-  echo '	<string>AppleHDA'$gKextID' 1.0.1a10, Copyright © 2003-2014 Pike R. Alpha. All rights reserved.</string>' >> $gInfoPlist
+  echo '	<string>AppleHDA'$gKextID' 1.2.0a14, Copyright © 2003-2014 Pike R. Alpha. All rights reserved.</string>' >> $gInfoPlist
   echo '	<key>CFBundleIdentifier</key>'                                                                           >> $gInfoPlist
   echo '	<string>com.apple.driver.AppleHDA'$gKextID'</string>'                                                    >> $gInfoPlist
   echo '	<key>CFBundleInfoDictionaryVersion</key>'                                                                >> $gInfoPlist
@@ -822,11 +862,11 @@ function _creatInfoPlist()
   echo '	<key>CFBundlePackageType</key>'                                                                          >> $gInfoPlist
   echo '	<string>KEXT</string>'                                                                                   >> $gInfoPlist
   echo '	<key>CFBundleShortVersionString</key>'                                                                   >> $gInfoPlist
-  echo '	<string>1.0.1</string>'                                                                                  >> $gInfoPlist
+  echo '	<string>1.2.0</string>'                                                                                  >> $gInfoPlist
   echo '	<key>CFBundleSignature</key>'                                                                            >> $gInfoPlist
   echo '	<string>????</string>'                                                                                   >> $gInfoPlist
   echo '	<key>CFBundleVersion</key>'                                                                              >> $gInfoPlist
-  echo '	<string>1.0.1a10</string>'                                                                               >> $gInfoPlist
+  echo '	<string>1.2.0a14</string>'                                                                               >> $gInfoPlist
   echo '	<key>IOKitPersonalities</key>'                                                                           >> $gInfoPlist
   echo '	<dict>'                                                                                                  >> $gInfoPlist
   echo '		<key>HDA Hardware Config Resource</key>'                                                             >> $gInfoPlist
@@ -867,7 +907,7 @@ function _creatInfoPlist()
 
 function _invalidArgumentError()
 {
-  _PRINT_ERROR "Invalid argument ${1} detected. Aborting ...\n"
+  _PRINT_ERROR "Invalid argument detected: ${1} Aborting ...\n"
   exit 1
 }
 
@@ -899,14 +939,14 @@ function _getScriptArguments()
           echo '       -d target directory'
           echo '       -b AppleHDA'
           echo '       -b AppleHDA:search,replace'
-#         echo '       -b AppleHDAController:search,replace'
+          echo '       -b AppleHDAController:search,replace'
           echo ''
           exit 0
         else
           #
           # Figure out what arguments are used.
           #
-          while [ "$1" != "" ];
+          while [ "$1" ];
           do
             #
             # Is this a valid script argument flag?
@@ -925,9 +965,9 @@ function _getScriptArguments()
                           # Make this our target ALC.
                           #
                           let gTargetALC=$1
-                          _DEBUG_DUMP "Setting gTargetALC to     : ${gTargetALC}"
+                          _DEBUG_DUMP "Setting gTargetALC to     : ${gTargetALC}\n"
                         else
-                          _invalidArgumentError "$1"
+                          _invalidArgumentError "-a $1"
                       fi
                       ;;
 
@@ -939,22 +979,25 @@ function _getScriptArguments()
                           # Make this our target LayoutID.
                           #
                           let gTargetLayoutID=$1
-                          _DEBUG_DUMP "Setting gTargetLayoutID to: ${gTargetLayoutID}"
+                          _DEBUG_DUMP "Setting gTargetLayoutID to: ${gTargetLayoutID}\n"
                         else
-                          _invalidArgumentError "$1"
+                          _invalidArgumentError "-l $1"
                       fi
                       ;;
 
                   -b) shift
 
-                      if [[ "$1" =~ ^"AppleHDA" ]];
+                      if [[ "${1:0:19}" == "AppleHDAController:" ]];
                         then
-                          _initAppleHDABinPatch "$1"
+                          _DEBUG_DUMP "Initialising bin-patch pattern for AppleHDAController\n"
+                          _initBinPatchPattern "$1"
+                        elif [[ "${1:0:8}" == "AppleHDA" ]];
+                          then
+                          _DEBUG_DUMP "Initialising bin-patch pattern for AppleHDA\n"
+                          _initBinPatchPattern "$1"
                         else
-                          _invalidArgumentError "$1"
+                          _invalidArgumentError "-b $1"
                       fi
-
-                      shift
                       ;;
 
                   -d) shift
@@ -965,11 +1008,10 @@ function _getScriptArguments()
                           # Make this our target directory.
                           #
                           gTargetDirectory=$(echo "$1" | sed 's/\/$//')
-                          echo "Setting gTargetDirectory to: ${gTargetDirectory}"
+                          _DEBUG_DUMP "Setting gTargetDirectory to: ${gTargetDirectory}\n"
                         else
-                          _invalidArgumentError "$1"
+                          _invalidArgumentError "-d $1"
                       fi
-                      shift
                       ;;
                 esac
               else
@@ -988,27 +1030,27 @@ function _getScriptArguments()
 
 function main()
 {
-  _getScriptArguments "$@"
   _showHeader
-# _initCodecID $gTargetALC "$@"
+  _getScriptArguments "$@"
   _initCodecID
   _initLayoutID $gTargetLayoutID
   _checkHDEFProperties
+
   #
   # Is this the first run?
   #
-  if [[ -e "${gTargetDirectory}/${gKextName}.kext" ]]; then
-    #
-    # Yes. Ask if  we should use this layout-id.
-    #
-    _PRINT_WARNING "${gKextName}.kext already exists. Do you want to overwrite it (y/n)? "
-    read choice
-    case "$choice" in
-      y|Y)
-        _DEBUG_DUMP "Removing directory ..."
-        rm -r "${gTargetDirectory}/${gKextName}.kext"
-        ;;
-     esac
+  if [[ -e "${gTargetDirectory}/${gKextName}.kext" ]];
+    then
+      #
+      # Yes. Ask if  we should use this layout-id.
+      #
+      _PRINT_WARNING "${gKextName}.kext already exists. Do you want to overwrite it (y/n)? "
+      read choice
+      case "$choice" in
+        y|Y) printf "Removing directory ...\n"
+             rm -r "${gTargetDirectory}/${gKextName}.kext"
+             ;;
+      esac
   fi
 
   _initConfigData
@@ -1060,45 +1102,132 @@ function main()
   #
   # Are we supposed to bin-patch the AppleHDA executable?
   #
-  if [[ $gAppleHDABinPatch != "" ]];
+  if [[ $gAppleHDAPatchPattern != "" ]];
     then
       #
       # Yes. Copy the AppleHDA executable to AppleHDALoader.kext/Contents/MacOS so that we can bin-patch it.
       #
       echo 'Copying AppleHDA ...'
-      cp "$sourceFile" "$targetFile"
-      #
-      # Now call Perl to bin-patch the executable.
-      #
-      printf 'Bin-patching AppleHDA ... '
-      local commandString="${gAppleHDABinPatch}"
-      echo "commandString: $commandString"
-      /usr/bin/perl -pi -e 's|'$commandString'|g' "$targetFile"
-      #
-      # Get the md5 checksum of source/target file.
-      #
-      local md5SourceFile=$(md5 $sourceFile)
-      local md5TargetFile=$(md5 $targetFile)
-      #
-      # Are the md5 checksums the same?
-      #
-      if [[ $md5SourceFile == $md5TargetFile ]];
+      cp -p "$sourceFile" "$targetFile"
+
+      local commandString="${gAppleHDAPatchPattern}"
+
+      _isBinaryAlreadyPatched "$targetFile" $commandString
+
+      if [[ $? -eq 0 ]];
         then
+          printf "Bin-patching AppleHDA ..."
           #
-          # Yes. Bin-patching failed.
+          # Call Perl to bin-patch the executable.
           #
-          _PRINT_ERROR "Patching failed!\n"
-        else
+          /usr/bin/perl -pi -e 's|'$commandString'|g' "$targetFile"
           #
-          # No. Bin-patching went fine.
+          # Get the md5 checksums of the source and target file.
           #
-          echo 'Done.'
+          local md5SourceFile=$(md5 $sourceFile)
+          local md5TargetFile=$(md5 $targetFile)
+          #
+          # Are the md5 checksums the same?
+          #
+          if [[ $md5SourceFile == $md5TargetFile ]];
+            then
+              #
+              # Yes. Bin-patching failed.
+              #
+              _PRINT_ERROR " Patching failed!\n"
+            else
+              #
+              # No. Bin-patching went fine.
+              #
+              printf " Done.\n"
+          fi
       fi
   else
       #
       # Create symbolic link to executable.
       #
       ln -fs "$sourceFile" "$targetFile"
+  fi
+
+  #
+  # Are we supposed to bin-patch the AppleHDAController executable?
+  #
+  if [[ $gAppleHDAControllerPatchPattern != "" ]];
+    then
+      #
+      # Yes. Initialise variables.
+      #
+      local sourceFile="${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAController.kext/Contents/MacOS/AppleHDAController"
+      local targetPath="${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDAController.kext/Contents/MacOS/"
+      local targetFile="${targetPath}AppleHDAController"
+
+      #
+      # Make target PlugIns directory structure.
+      #
+      mkdir -m 755 -p "${targetPath}"
+
+      #
+      # Copy the AppleHDAController executable to the target location.
+      #
+      echo 'Copying AppleHDAController ...'
+      cp -p "$sourceFile" "$targetFile"
+
+      local commandString="${gAppleHDAControllerPatchPattern}"
+      #
+      # Is the binary already patched?
+      #
+      _isBinaryAlreadyPatched "$targetFile" $commandString
+
+      if [[ $? -eq 0 ]];
+        then
+          #
+          # No. We have to bin-patch it.
+          #
+          printf "Bin-patching AppleHDAController ..."
+          #
+          # Call Perl to bin-patch the executable.
+          #
+          /usr/bin/perl -pi -e 's|'$commandString'|g' "$targetFile"
+          #
+          # Get the md5 checksums of the source and target file.
+          #
+          local md5SourceFile=$(md5 $sourceFile)
+          local md5TargetFile=$(md5 $targetFile)
+          #
+          # Are the md5 checksums the same?
+          #
+          if [[ $md5SourceFile == $md5TargetFile ]];
+            then
+              #
+              # Yes. Bin-patching failed.
+              #
+              _PRINT_ERROR " Patching failed!\n"
+            else
+              #
+              # No. Bin-patching went fine.
+              #
+              printf " Done.\n"
+          fi
+      fi
+      #
+      # Re-initialise variables.
+      #
+      local sourceFile="${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAController.kext/Contents/Info.plist"
+      local targetPath="${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDAController.kext/Contents/"
+      local targetFile="${targetPath}Info.plist"
+
+      #
+      # Copy Info.plist to our target location.
+      #
+      cp -p "$sourceFile" "$targetPath"
+
+      #
+      # Replace version info with "9.1.1" in Info.plist
+      #
+      # -c = Execute command and exit.
+      #
+      /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 9.1.1" "$targetFile"
+      /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 9.1.1a10" "$targetFile"
   fi
 
   #
@@ -1109,7 +1238,18 @@ function main()
   #
   # Copy AppleHDA.kext/Contents/Info.plist to our AppleHDALoader.kext
   #
-  cp "${gExtensionsDirectory}/AppleHDA.kext/Contents/Info.plist" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/"
+  cp -p "${gExtensionsDirectory}/AppleHDA.kext/Contents/Info.plist" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/"
+
+  #
+  # Replace version info with "9.1.1" in AppleHDALoader.kext
+  #
+  targetFile="${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Info.plist"
+
+  #
+  # -c = Execute command and exit.
+  #
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 9.1.1" "$targetFile"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 9.1.1a10" "$targetFile"
 
   #
   # Copy CodeResources.
@@ -1117,28 +1257,20 @@ function main()
   cp -R "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/DspFuncLib.kext/Contents/_CodeSignature" "${gTargetDirectory}/${gKextName}.kext/Contents/"
 
   #
-  # Replace version info with "9.1.1" in AppleHDALoader.kext
-  #
-  gTargetFile="${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Info.plist"
-  #
-  # -c = Execute command and exit.
-  #
-  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 9.1.1" "$gTargetFile"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 9.1.1a10" "$gTargetFile"
-  #
   # Fix ownership and permissions.
   #
-  _DEBUG_DUMP 'Fixing file permissions ...'
+  _DEBUG_DUMP "Fixing file permissions ...\n"
   chmod -R 755 "${gTargetDirectory}/${gKextName}.kext"
+
   #
   # Ownership of a file may only be altered by a super-user hence the use of sudo here.
   #
-  _DEBUG_DUMP 'Fixing file ownership ...'
+  _DEBUG_DUMP "Fixing file ownership ...\n"
   chown -R root:wheel "${gTargetDirectory}/${gKextName}.kext"
 
   if [[ "${gTargetDirectory}" != "${gExtensionsDirectory}" ]];
     then
-      _DEBUG_DUMP "Checking kext with kextutil ..."
+      _DEBUG_DUMP "Checking kext with kextutil ...\n"
       #
       # -q = Quiet mode; print no informational or error messages.
       # -t = Perform all possible tests on the specified kexts.
@@ -1162,18 +1294,19 @@ function main()
   #
   # Check target directory.
   #
-  if [[ "${gTargetDirectory}" == "${gExtensionsDirectory}" ]]; then
-    #
-    # Conditionally touch the Extensions directory.
-    #
-    _DEBUG_DUMP 'Triggering a kernelcache refresh ...'
-    touch "${gExtensionsDirectory}"
+  if [[ "${gTargetDirectory}" == "${gExtensionsDirectory}" ]];
+    then
+      #
+      # Conditionally touch the Extensions directory.
+      #
+      _DEBUG_DUMP "Triggering a kernelcache refresh ...\n"
+      touch "${gExtensionsDirectory}"
 
-    read -p "Do you want to reboot now? (y/n) " choice2
-    case "$choice2" in
-      y|Y ) reboot now
-      ;;
-    esac
+      read -p "Do you want to reboot now? (y/n) " choice2
+      case "$choice2" in
+        y|Y ) reboot now
+              ;;
+      esac
   fi
 
   if [[ $gExtraStyling -eq 1 ]];
