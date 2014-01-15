@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.0 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 2.1 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -30,12 +30,13 @@
 #			- _DEBUG_DUMP renamed to _DEBUG_PRINT (Pike R. Alpha, January 2014)
 #			- Search pattern checks moved from main to _initBinPatchPattern (Pike R. Alpha, January 2014)
 #			- Default pattern for AppleHDAController bin-patching added (Pike R. Alpha, January 2014)
+#			- Update gInfoPlist after (auto)selection of ALC model (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
 #
 # Contributors:
-#			- Thanks to 'Toleda' for providing a great Github repository.
+#			- Thanks to 'Toleda' for providing a great Github repository and all his testing.
 #			- Thanks to 'philip_petev' for his tip to use PlistBuddy.
 #
 #
@@ -107,7 +108,7 @@
 #
 
 
-gScriptVersion=2.0
+gScriptVersion=2.1
 
 #
 # Setting the debug mode (default off).
@@ -689,6 +690,7 @@ function _initCodecID()
            gKextID=${data[2]}
            gTargetALC=${data[2]}
            gDownloadLink="https://raw.github.com/toleda/audio_ALC${data[2]}/master/${data[2]}.zip"
+           gInfoPlist="${gTargetDirectory}/${gKextName}.kext/Contents/Info.plist"
            #
            # Change delimiter.
            #
