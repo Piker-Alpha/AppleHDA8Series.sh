@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.1 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 2.2 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -31,6 +31,11 @@
 #			- Search pattern checks moved from main to _initBinPatchPattern (Pike R. Alpha, January 2014)
 #			- Default pattern for AppleHDAController bin-patching added (Pike R. Alpha, January 2014)
 #			- Update gInfoPlist after (auto)selection of ALC model (Pike R. Alpha, January 2014)
+#			- Creating AppleHDA898.kext failed due to a silly typo 899->898 (Pike R. Alpha, January 2014)
+#			- Stop showing the warning for a missing Info-NN.plist (Pike R. Alpha, January 2014)
+#			- Fixed an issue where 00 bytes were stripped off of ConfigData (Pike R. Alpha, January 2014)
+#			- We now export the ConfigData and no longer use base64 to convert data (Pike R. Alpha, January 2014)
+#			- Added a default pattern for -b AppleHDAController (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -108,7 +113,7 @@
 #
 
 
-gScriptVersion=2.1
+gScriptVersion=2.2
 
 #
 # Setting the debug mode (default off).
@@ -431,20 +436,28 @@ function _initBinPatchPattern()
   #
   # Should we init a bin-patch pattern for the AppleHDA binary?
   #
-  if [[ ${commandString:0:19} == "AppleHDAController:" ]];
+  if [[ ${commandString:0:18} == "AppleHDAController" ]];
     then
       #
-      # Yes, but first check the given pattern.
+      # Yes. Are we called with: -b AppleHDAController:search_data,replace_data?
       #
-      _checkPatchPatterns "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAController.kext/Contents/MacOS/AppleHDAController" $commandString
-
-      if [[ $? -eq 0 ]];
+      if [[ ${commandString:18:1} == ":" ]];
         then
-          gAppleHDAControllerPatchPattern=$patternString
+          #
+          # Yes. check the given pattern.
+          #
+          _checkPatchPatterns "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAController.kext/Contents/MacOS/AppleHDAController" $commandString
+
+          if [[ $? -eq 0 ]];
+            then
+              gAppleHDAControllerPatchPattern=$patternString
+            else
+              gAppleHDAControllerPatchPattern=""
+              _PRINT_ERROR "Search Pattern NOT found in AppleHDAController! Aborting ...\n"
+              exit 1
+          fi
         else
-          gAppleHDAControllerPatchPattern=""
-          _PRINT_ERROR "Search Pattern NOT found in AppleHDAController! Aborting ...\n"
-          exit 1
+          gAppleHDAControllerPatchPattern="\x0c\x0c\x00\x00\x75\x61\xeb\x30|\x0c\x0c\x00\x00\x75\x61\xeb\x0e"
       fi
     #
     # Or should we init a bin-patch pattern for the AppleHDA binary?
@@ -492,7 +505,7 @@ function _initBinPatchPattern()
               892 ) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x92\x08\xec\x10"
                     ;;
 
-              899 ) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x99\x08\xec\x10"
+              898 ) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x99\x08\xec\x10"
                     ;;
 
               1150) gAppleHDAPatchPattern="\x8b\x19\xd4\x11|\x00\x09\xec\x10"
@@ -761,8 +774,14 @@ function _initConfigData()
               if [[ $layoutID -eq $gLayoutID ]];
                 then
                   _DEBUG_PRINT "Target LayoutID found ...\nGetting ConfigData ...\n"
-
-                  gExtractedConfigData=$(/usr/libexec/PlistBuddy -c "${commandString}ConfigData" $sourceFile)
+                  #
+                  # Get the ConfigData and store it in XML format (otherwise we end up with a trailing 0a)
+                  #
+                  /usr/libexec/PlistBuddy -c "${commandString}ConfigData" $sourceFile -x > "/tmp/ConfigData-ALC${gKextID}.xml"
+                  #
+                  # Strip XML tags and remove the newline characters.
+                  #
+                  gConfigData=$(awk '/<data>.*/,/<\/data>/' "/tmp/ConfigData-ALC${gKextID}.xml" | sed -e 's/<\/*data>//' | tr -d '\n')
                   return 1
               fi
           fi
@@ -811,7 +830,7 @@ function _initConfigData()
           #
           if [[ ! -e "/tmp/${gKextID}/Info-${plistID}.plist" ]];
             then
-              _PRINT_WARNING "Info-${plistID}.plist not found!\n"
+              _DEBUG_PRINT "${STYLE_BOLD}Warning:${STYLE_RESET} Info-${plistID}.plist not found!\n"
               #
               # No. File does not exist. Create list with available plist files.
               #
@@ -871,11 +890,7 @@ function _initConfigData()
   if [[ $stat -eq 1 ]];
     then
       echo  "ConfigData for Realtek ALC ${gKextID} found!"
-      #
-      # \c stops it from adding a trailing new line character (-n is not available in sh).
-      #
       echo '------------------------------------------------------------'
-      gConfigData=$(echo "$gExtractedConfigData\c" | base64)
       echo $gConfigData
       echo '------------------------------------------------------------'
       return 1
