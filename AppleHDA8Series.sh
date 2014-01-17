@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.2 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 2.3 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -36,6 +36,7 @@
 #			- Fixed an issue where 00 bytes were stripped off of ConfigData (Pike R. Alpha, January 2014)
 #			- We now export the ConfigData and no longer use base64 to convert data (Pike R. Alpha, January 2014)
 #			- Added a default pattern for -b AppleHDAController (Pike R. Alpha, January 2014)
+#			- The -h argument now shows the supported ALC's (Pike R. Alpha, January 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -70,7 +71,7 @@
 #
 # Examples:
 #           - ./AppleHDA8Series.sh
-#           - ./AppleHDA8Series.sh -a 892
+#           - ./AppleHDA8Series.sh -a 892 
 #           - ./AppleHDA8Series.sh -a 892 -l 3
 #           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
 #
@@ -113,7 +114,7 @@
 #
 
 
-gScriptVersion=2.2
+gScriptVersion=2.3
 
 #
 # Setting the debug mode (default off).
@@ -999,7 +1000,7 @@ function _getScriptArguments()
               echo "Usage: ./AppleHDA8Series.sh [-haldb]"
           fi
           echo '       -h print help info'
-          echo '       -a target ALC'
+          echo '       -a target ALC [885/887/888/889/892/898/1150]'
           echo '       -l target layout-id'
           echo '       -d target directory'
           echo '       -b AppleHDA'
