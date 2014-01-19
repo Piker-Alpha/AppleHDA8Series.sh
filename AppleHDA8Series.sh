@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.3 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 2.4 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -112,9 +112,15 @@
 #           - ./AppleHDA8Series.sh -b AppleHDA -b AppleHDAController
 #           - ./AppleHDA8Series.sh -b AppleHDA:\x8b\x19\xd4\x11,\x92\x08\xec\x10 -b AppleHDAController:\x0c\x0c\x00\x00\x75\x61\xeb\x30,\x0c\x0c\x00\x00\x75\x61\xeb\x0e
 #
+# Usage (version 2.4 and greater):
+#
+# Example:
+#           - ./AppleHDA8Series.sh -b AppleHDA:\x85\x08\xec\x10,\x85\x08\xec\x10
+#
+# Note: This is a special condition to get the AppleHDA binary copied without actually patching it.
+#
 
-
-gScriptVersion=2.3
+gScriptVersion=2.4
 
 #
 # Setting the debug mode (default off).
@@ -275,6 +281,21 @@ function _DEBUG_PRINT()
 #--------------------------------------------------------------------------------
 #
 
+function _PRINT_NOTE()
+{
+  if [[ $gExtraStyling -eq 1 ]];
+    then
+      printf "${STYLE_BOLD}Note:${STYLE_RESET} $1"
+    else
+      printf "Note: $1"
+  fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
 function _PRINT_WARNING()
 {
   if [[ $gExtraStyling -eq 1 ]];
@@ -298,6 +319,23 @@ function _PRINT_ERROR()
       printf "Error: $1"
   fi
 }
+
+
+#
+#--------------------------------------------------------------------------------
+#
+function _ABORT()
+{
+  if [[ $gExtraStyling -eq 1 ]];
+    then
+      printf "Aborting ...\n${STYLE_BOLD}Done.${STYLE_RESET}\n\n"
+    else
+      printf "Aborting ...\nDone.\n\n"
+  fi
+
+  exit 1
+}
+
 
 #
 #--------------------------------------------------------------------------------
@@ -371,31 +409,32 @@ function _checkPatchPatterns()
 {
   local targetBinary=$1
   local commandString=$2
+  #
+  # Strip AppleHDA:/AppleHDAController: and get all characters after the vertical bar.
+  #
   local searchPattern=$(echo $commandString | sed -e 's/AppleHDA.*://' -e 's/|.*$//g')
+  #
+  # Get all characters in front of the vertical bar.
+  #
   local replacePattern=$(echo $commandString | sed -e 's/.*|//g')
 
   #
-  # Do we have a target binary (should be there)?
+  # Check length of search/replace patterns. Are they of the same length?
   #
-  if [[ -e "$targetBinary" ]];
+  if [[ ${#searchPattern} == ${#replacePattern} ]];
     then
-      local targetBinaryName=$(echo $targetBinary | sed 's/.*\/MacOS\///')
-      _DEBUG_PRINT "targetBinaryName: $targetBinaryName\n"
-
       #
-      # Yes. Check the given search pattern.
+      # Yes, so do we have a target binary (should be there)?
       #
-      /usr/bin/grep "$searchPattern" "$targetBinary"
-
-      #
-      # Check return status.
-      #
-      if [[ $? == 0 ]];
+      if [[ -e "$targetBinary" ]];
         then
+          local targetBinaryName=$(echo $targetBinary | sed 's/.*\/MacOS\///')
+          _DEBUG_PRINT "targetBinaryName: $targetBinaryName\n"
+
           #
-          # Ok. Check the given replace pattern (must match).
+          # Yes. Check the given search pattern.
           #
-          /usr/bin/grep "$replacePattern" "$targetBinary"
+          /usr/bin/grep "$searchPattern" "$targetBinary" > /dev/null
 
           #
           # Check return status.
@@ -403,20 +442,47 @@ function _checkPatchPatterns()
           if [[ $? == 0 ]];
             then
               #
-              # If we come here then the binary is already patched.
+              # Ok. Check the given replace pattern (must match).
               #
-              _PRINT_WARNING "${targetBinaryName} binary is already patched, skipping ...\n"
+              /usr/bin/grep "$replacePattern" "$targetBinary" > /dev/null
+
+              #
+              # Check return status.
+              #
+              if [[ $? == 0 ]];
+                then
+                  #
+                  # Are the search and replace patterns the same?
+                  #
+                  if [[ "$searchPattern" == "$replacePattern" ]];
+                    then
+                      #
+                      # Special condition to get AppleHDA copied later on.
+                      #
+                      _PRINT_WARNING "Search and replace patterns are the same!\n"
+                      return 2
+                    else
+                      _PRINT_WARNING "Search and replace patterns found in ${targetBinaryName}!\n"
+                      printf "         ${targetBinaryName} may already have been patched!\n"
+                  fi
+                else
+                  printf "Search pattern found in ${targetBinaryName}, replace pattern NOT found (Ok).\n"
+                  return 0
+              fi
             else
-              printf "No match found, preparing for binary patch.\n"
-              return 0
+              #
+              #
+              #
+              _PRINT_ERROR "Search pattern is NOT found in ${targetBinaryName}! "
+              _ABORT
           fi
-        else
-          #
-          #
-          #
-          _PRINT_ERROR "Search pattern is NOT found in ${targetBinaryName}! Aborting ...\n"
-          exit 1
       fi
+    else
+      #
+      # No. Not the same length.
+      #
+      _PRINT_ERROR "Length of Search/Replace patterns is different! "
+      _ABORT
   fi
 
   return 1
@@ -431,7 +497,7 @@ function _initBinPatchPattern()
 {
   local commandString=$(echo $1 | sed -e 's/,/|/g' -e 's/x/\\x/g')
   #
-  # Initialise pattern for AppleHDA/AppleHDAController
+  # Initialise search and replace patterns for AppleHDA/AppleHDAController
   #
   local patternString=$(echo $commandString | sed 's/AppleHDA.*://')
   #
@@ -445,17 +511,36 @@ function _initBinPatchPattern()
       if [[ ${commandString:18:1} == ":" ]];
         then
           #
-          # Yes. check the given pattern.
+          # Check for illegal characters in patterns.
           #
-          _checkPatchPatterns "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAController.kext/Contents/MacOS/AppleHDAController" $commandString
-
-          if [[ $? -eq 0 ]];
+          if [[ $patternString =~ ^[0-9a-fA-F|\\x]+$ ]];
             then
-              gAppleHDAControllerPatchPattern=$patternString
+              #
+              # Yes. check the given pattern.
+              #
+              _checkPatchPatterns "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAController.kext/Contents/MacOS/AppleHDAController" $commandString
+
+              if [[ $? -eq 0 ]];
+                then
+                  gAppleHDAControllerPatchPattern=$patternString
+                else
+                  gAppleHDAControllerPatchPattern=""
+                  _PRINT_WARNING "AppleHDAController will NOT be copied/patched!\n\n"
+                  printf "         ${STYLE_BOLD}Tip:${STYLE_RESET} Do you want AppleHDAController to get copied?\n"
+                  printf "              - Use a search pattern that matches the AppleHDAController binary.\n"
+                  printf "              - Use your search pattern also as replace pattern.\n"
+                  read -p "Do you want to continue or abort (c/a)? " choice
+                  case "$choice" in
+                    a|A) _ABORT
+                         ;;
+
+                      *) echo ""
+                         ;;
+                  esac
+              fi
             else
-              gAppleHDAControllerPatchPattern=""
-              _PRINT_ERROR "Search Pattern NOT found in AppleHDAController! Aborting ...\n"
-              exit 1
+              _PRINT_ERROR "Illegal character(s) detected in pattern! "
+              _ABORT
           fi
         else
           gAppleHDAControllerPatchPattern="\x0c\x0c\x00\x00\x75\x61\xeb\x30|\x0c\x0c\x00\x00\x75\x61\xeb\x0e"
@@ -471,17 +556,45 @@ function _initBinPatchPattern()
         if [[ ${commandString:8:1} == ":" ]];
           then
             #
-            # Yes. check the given pattern.
+            # Check for illegal characters in patterns.
             #
-            _checkPatchPatterns "${gExtensionsDirectory}/AppleHDA.kext/Contents/MacOS/AppleHDA" $commandString
-
-            if [[ $? -eq 0 ]];
+            if [[ $patternString =~ ^[0-9a-fA-F|\\x]+$ ]];
               then
-                gAppleHDAPatchPattern=$patternString
+                #
+                # Yes. check the given pattern.
+                #
+                _checkPatchPatterns "${gExtensionsDirectory}/AppleHDA.kext/Contents/MacOS/AppleHDA" $commandString
+                local stat=$?
+
+                if [[ $stat -eq 0 ]];
+                  then
+                    echo ''
+                    gAppleHDAPatchPattern=$patternString
+                  else
+                    gAppleHDAPatchPattern=""
+
+                    if [[ $stat -eq 1 ]];
+                      then
+                        printf "         AppleHDA will NOT be copied and will NOT be patched!\n"
+                        printf "\n         ${STYLE_BOLD}Tip:${STYLE_RESET} Do you want AppleHDA to get copied?\n"
+                        printf "              - Use a search pattern that matches the AppleHDA binary.\n"
+                        printf "              - Use your search pattern also as replace pattern.\n"
+                        printf '                Example: -b AppleHDA:\\x85\\x08\\xec\\x10,\\x85\\x08\\xec\\x10\n\n'
+                        read -p "Do you want to continue or abort (c/a)? " choice
+                        case "$choice" in
+                          a|A) _ABORT
+                               ;;
+
+                            *) echo ""
+                               ;;
+                        esac
+                      else
+                        printf "         AppleHDA will be copied but will NOT be patched!\n\n"
+                    fi
+                fi
               else
-                gAppleHDAPatchPattern=""
-                _PRINT_ERROR "Search Pattern NOT found in AppleHDA! Aborting ...\n"
-                exit 1
+                _PRINT_ERROR "Illegal character(s) detected in pattern! "
+                _ABORT
             fi
           else
             #
@@ -522,6 +635,9 @@ function _initBinPatchPattern()
                     ;;
             esac
         fi
+    else
+      _PRINT_ERROR "-b with unsupported binary target used! "
+      _ABORT
   fi
 }
 
@@ -595,9 +711,8 @@ function _initLayoutID()
           fi
         else
           _PRINT_ERROR "ACPI Device (HDEF) {} NOT found!\n"
-          echo '       ACPI tables appear to be broken and require (manual) patching!'
-          _PRINT_ERROR "Aborting ...\n"
-          exit 1
+          echo '       ACPI tables appear to be broken and require (manual) patching! '
+          _ABORT
       fi
   fi
 }
@@ -794,7 +909,7 @@ function _initConfigData()
   #
   # The most common spot to look for ConfigData is of course in AppleHDAHardwareConfigDriver.kext
   #
-  echo "Looking in ${gExtensionsDirectory}/AppleHDA.kext for the ConfigData"
+  echo "Looking in ${gExtensionsDirectory}/AppleHDA.kext for ConfigData"
   __searchForConfigData "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAHardwareConfigDriver.kext/Contents/Info.plist"
 
   if (($? == 0));
@@ -802,7 +917,7 @@ function _initConfigData()
       #
       # But when that fails, then we look for the data in FakeSMC.kext
       #
-      echo "Looking in ${gExtensionsDirectory}/FakeSMC.kext for the ConfigData"
+      echo "Looking in ${gExtensionsDirectory}/FakeSMC.kext for ConfigData"
       __searchForConfigData "${gExtensionsDirectory}/FakeSMC.kext/Contents/Info.plist"
       #
       # Check status for success.
@@ -822,7 +937,7 @@ function _initConfigData()
           printf "Unzipping "
           unzip -u "/tmp/ALC${gKextID}.zip" -d "/tmp/"
           #
-          # We <em>should</em> now have the Info.plist so let's do another search for the ConfigData,
+          # We <em>should</em> now have the Info.plist so let's do another search for ConfigData,
           # but first convert 'gProductVersion' to something that Toleda is using (example: 10.9.2 -> 92)
           #
           local plistID=$(echo $gProductVersion | sed 's/[10\./]//g')
@@ -858,7 +973,7 @@ function _initConfigData()
                   read -p "Please choose the matching Info.plist (1/${index}) " selection
                   case "$selection" in
                     [1-${index}])
-                       printf "\nLooking in: ${plistNames[${selection} - 1]} for the ConfigData\n"
+                       printf "\nLooking in: ${plistNames[${selection} - 1]} for ConfigData\n"
                        __searchForConfigData "${plistNames[${selection} - 1]}"
                        ;;
 
@@ -868,7 +983,7 @@ function _initConfigData()
                   esac
               fi
             else
-              echo "Looking in /tmp/${gKextID}/Info-${plistID}.plist for the ConfigData"
+              echo "Looking in /tmp/${gKextID}/Info-${plistID}.plist for ConfigData"
               __searchForConfigData "/tmp/${gKextID}/Info-${plistID}.plist"
           fi
 
@@ -973,8 +1088,8 @@ function _creatInfoPlist()
 
 function _invalidArgumentError()
 {
-  _PRINT_ERROR "Invalid argument detected: ${1} Aborting ...\n"
-  exit 1
+  _PRINT_ERROR "Invalid argument detected: ${1} "
+  _ABORT
 }
 
 #
@@ -1128,8 +1243,7 @@ function main()
       #
       # Error. ConfigData not found.
       #
-      _PRINT_ERROR "Aborting ...\n"
-      exit 1
+      _ABORT
   fi
 
   #
@@ -1204,10 +1318,11 @@ function main()
               printf " Done.\n"
           fi
       fi
-  else
+    else
       #
       # Create symbolic link to executable.
       #
+      echo 'Creating symbolic link to AppleHDA ...'
       ln -fs "$sourceFile" "$targetFile"
   fi
 
