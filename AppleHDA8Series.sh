@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.4 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 2.5 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -37,6 +37,7 @@
 #			- We now export the ConfigData and no longer use base64 to convert data (Pike R. Alpha, January 2014)
 #			- Added a default pattern for -b AppleHDAController (Pike R. Alpha, January 2014)
 #			- The -h argument now shows the supported ALC's (Pike R. Alpha, January 2014)
+#			- Using a less restrictive filter for -d target directory (Pike R. Alpha, Februari 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -120,7 +121,7 @@
 # Note: This is a special condition to get the AppleHDA binary copied without actually patching it.
 #
 
-gScriptVersion=2.4
+gScriptVersion=2.5
 
 #
 # Setting the debug mode (default off).
@@ -1183,7 +1184,7 @@ function _getScriptArguments()
 
                   -d) shift
 
-                      if [[ "$1" =~ ^[a-zA-Z/*?]+$ ]];
+                      if [[ "$1" =~ ^[0-9a-zA-Z/*?]+$ ]];
                         then
                           #
                           # Make this our target directory.
