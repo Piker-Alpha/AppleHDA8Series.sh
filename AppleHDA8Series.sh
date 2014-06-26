@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.5 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 2.6 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -38,6 +38,7 @@
 #			- Added a default pattern for -b AppleHDAController (Pike R. Alpha, January 2014)
 #			- The -h argument now shows the supported ALC's (Pike R. Alpha, January 2014)
 #			- Using a less restrictive filter for -d target directory (Pike R. Alpha, Februari 2014)
+#			- Changed download host from raw.github.com to raw.githubusercontent.com (Pike R. Alpha, June 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -121,7 +122,7 @@
 # Note: This is a special condition to get the AppleHDA binary copied without actually patching it.
 #
 
-gScriptVersion=2.5
+gScriptVersion=2.6
 
 #
 # Setting the debug mode (default off).
@@ -202,7 +203,7 @@ gSupportedCodecs=(
 #
 # The default download link to Toleda's Githib repository.
 #
-gDownloadLink="https://raw.github.com/toleda/audio_ALC892/master/892.zip"
+gDownloadLink="https://raw.githubusercontent.com.com/toleda/audio_ALC892/master/892.zip"
 
 #
 # The version info of the running system i.e. '10.9.2'
@@ -819,7 +820,7 @@ function _initCodecID()
            gCodecID=${data[0]}
            gKextID=${data[2]}
            gTargetALC=${data[2]}
-           gDownloadLink="https://raw.github.com/toleda/audio_ALC${data[2]}/master/${data[2]}.zip"
+           gDownloadLink="https://raw.githubusercontent.com/toleda/audio_ALC${data[2]}/master/${data[2]}.zip"
            gInfoPlist="${gTargetDirectory}/${gKextName}.kext/Contents/Info.plist"
            #
            # Change delimiter.
