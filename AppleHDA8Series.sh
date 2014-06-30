@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.7 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 2.8 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -42,6 +42,7 @@
 #			- OS version detection improved for Yosemite (Pike R. Alpha, June 2014)
 #			- Changed CFBundleShortVersionString injection for Yosemite (Pike R. Alpha, June 2014)
 #			- Changed CFBundleVersion injection for Yosemite (Pike R. Alpha, June 2014)
+#			- Typo in URL fixed (Pike R. Alpha, June 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -125,7 +126,7 @@
 # Note: This is a special condition to get the AppleHDA binary copied without actually patching it.
 #
 
-gScriptVersion=2.7
+gScriptVersion=2.8
 
 #
 # Setting the debug mode (default off).
@@ -206,7 +207,7 @@ gSupportedCodecs=(
 #
 # The default download link to Toleda's Githib repository.
 #
-gDownloadLink="https://raw.githubusercontent.com.com/toleda/audio_ALC892/master/892.zip"
+gDownloadLink="https://raw.githubusercontent.com/toleda/audio_ALC892/master/892.zip"
 
 #
 # The version info of the running system i.e. '10.9.2'
