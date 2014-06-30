@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.6 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 2.7 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -39,6 +39,9 @@
 #			- The -h argument now shows the supported ALC's (Pike R. Alpha, January 2014)
 #			- Using a less restrictive filter for -d target directory (Pike R. Alpha, Februari 2014)
 #			- Changed download host from raw.github.com to raw.githubusercontent.com (Pike R. Alpha, June 2014)
+#			- OS version detection improved for Yosemite (Pike R. Alpha, June 2014)
+#			- Changed CFBundleShortVersionString injection for Yosemite (Pike R. Alpha, June 2014)
+#			- Changed CFBundleVersion injection for Yosemite (Pike R. Alpha, June 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -122,7 +125,7 @@
 # Note: This is a special condition to get the AppleHDA binary copied without actually patching it.
 #
 
-gScriptVersion=2.6
+gScriptVersion=2.7
 
 #
 # Setting the debug mode (default off).
@@ -911,7 +914,7 @@ function _initConfigData()
   #
   # The most common spot to look for ConfigData is of course in AppleHDAHardwareConfigDriver.kext
   #
-  echo "Looking in ${gExtensionsDirectory}/AppleHDA.kext for ConfigData"
+  echo "Looking in: ${gExtensionsDirectory}/AppleHDA.kext for ConfigData"
   __searchForConfigData "${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAHardwareConfigDriver.kext/Contents/Info.plist"
 
   if (($? == 0));
@@ -919,7 +922,7 @@ function _initConfigData()
       #
       # But when that fails, then we look for the data in FakeSMC.kext
       #
-      echo "Looking in ${gExtensionsDirectory}/FakeSMC.kext for ConfigData"
+      echo "Looking in: ${gExtensionsDirectory}/FakeSMC.kext for ConfigData"
       __searchForConfigData "${gExtensionsDirectory}/FakeSMC.kext/Contents/Info.plist"
       #
       # Check status for success.
@@ -940,9 +943,11 @@ function _initConfigData()
           unzip -u "/tmp/ALC${gKextID}.zip" -d "/tmp/"
           #
           # We <em>should</em> now have the Info.plist so let's do another search for ConfigData,
-          # but first convert 'gProductVersion' to something that Toleda is using (example: 10.9.2 -> 92)
+          # but first convert 'gProductVersion' to something that Toleda is using.
           #
-          local plistID=$(echo $gProductVersion | sed 's/[10\./]//g')
+          # Examples: 10.9.2 -> 92 / 10.10 -> 10 / 10.10.1 -> 101
+          #
+          local plistID=$(echo $gProductVersion | sed -e 's/^10\.//' -e 's/\.//')
           #
           # Start by checking if the file exists.
           #
@@ -985,7 +990,7 @@ function _initConfigData()
                   esac
               fi
             else
-              echo "Looking in /tmp/${gKextID}/Info-${plistID}.plist for ConfigData"
+              echo "Looking in: /tmp/${gKextID}/Info-${plistID}.plist for ConfigData"
               __searchForConfigData "/tmp/${gKextID}/Info-${plistID}.plist"
           fi
 
@@ -1035,9 +1040,9 @@ function _creatInfoPlist()
   echo '	<key>CFBundleDevelopmentRegion</key>'                                                                    >> $gInfoPlist
   echo '	<string>English</string>'                                                                                >> $gInfoPlist
   echo '	<key>CFBundleGetInfoString</key>'                                                                        >> $gInfoPlist
-  echo '	<string>AppleHDA'$gKextID' 1.2.0a14, Copyright © 2003-2014 Pike R. Alpha. All rights reserved.</string>' >> $gInfoPlist
+  echo '	<string>AppleHDA'$gKextID' v'$gScriptVersion'.0, Copyright © 2013-'$(date "+%Y")' Pike R. Alpha. All rights reserved.</string>' >> $gInfoPlist
   echo '	<key>CFBundleIdentifier</key>'                                                                           >> $gInfoPlist
-  echo '	<string>com.apple.driver.AppleHDA'$gKextID'</string>'                                                    >> $gInfoPlist
+  echo '	<string>com.PikeRAlpha.driver.AppleHDA'$gKextID'</string>'                                               >> $gInfoPlist
   echo '	<key>CFBundleInfoDictionaryVersion</key>'                                                                >> $gInfoPlist
   echo '	<string>6.0</string>'                                                                                    >> $gInfoPlist
   echo '	<key>CFBundleName</key>'                                                                                 >> $gInfoPlist
@@ -1045,11 +1050,11 @@ function _creatInfoPlist()
   echo '	<key>CFBundlePackageType</key>'                                                                          >> $gInfoPlist
   echo '	<string>KEXT</string>'                                                                                   >> $gInfoPlist
   echo '	<key>CFBundleShortVersionString</key>'                                                                   >> $gInfoPlist
-  echo '	<string>1.2.0</string>'                                                                                  >> $gInfoPlist
+  echo '	<string>'$gScriptVersion'.0</string>'                                                                    >> $gInfoPlist
   echo '	<key>CFBundleSignature</key>'                                                                            >> $gInfoPlist
   echo '	<string>????</string>'                                                                                   >> $gInfoPlist
   echo '	<key>CFBundleVersion</key>'                                                                              >> $gInfoPlist
-  echo '	<string>1.2.0a14</string>'                                                                               >> $gInfoPlist
+  echo '	<string>'$gScriptVersion'.0</string>'                                                                    >> $gInfoPlist
   echo '	<key>IOKitPersonalities</key>'                                                                           >> $gInfoPlist
   echo '	<dict>'                                                                                                  >> $gInfoPlist
   echo '		<key>HDA Hardware Config Resource</key>'                                                             >> $gInfoPlist
@@ -1395,12 +1400,12 @@ function main()
       cp -p "$sourceFile" "$targetPath"
 
       #
-      # Replace version info with "9.1.1" in Info.plist
+      # Replace version info with "911.${gScriptVersion}" in Info.plist
       #
       # -c = Execute command and exit.
       #
-      /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 9.1.1" "$targetFile"
-      /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 9.1.1a10" "$targetFile"
+      /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 911.${gScriptVersion}" "$targetFile"
+      /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 911.${gScriptVersion}" "$targetFile"
   fi
 
   #
@@ -1414,15 +1419,15 @@ function main()
   cp -p "${gExtensionsDirectory}/AppleHDA.kext/Contents/Info.plist" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/"
 
   #
-  # Replace version info with "9.1.1" in AppleHDALoader.kext
+  # Replace version info with "911.${gScriptVersion}" in AppleHDALoader.kext
   #
   targetFile="${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Info.plist"
 
   #
   # -c = Execute command and exit.
   #
-  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 9.1.1" "$targetFile"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 9.1.1a10" "$targetFile"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 911.${gScriptVersion}" "$targetFile"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 911.${gScriptVersion}" "$targetFile"
 
   #
   # Copy CodeResources.
@@ -1445,12 +1450,20 @@ function main()
     then
       _DEBUG_PRINT "Checking kext with kextutil ...\n"
       #
-      # -q = Quiet mode; print no informational or error messages.
-      # -t = Perform all possible tests on the specified kexts.
-      # -n = Neither load the kext nor send personalities to the kernel.
-      # -k = Link against the given kernel_file.
+      # Check for Yosemite (different kernel path).
       #
-      kextutil -qtnk /mach_kernel "${gTargetDirectory}/${gKextName}.kext"
+      if [[ $gProductVersion =~ "10.10" ]];
+        then
+          #
+          # -q = Quiet mode; print no informational or error messages.
+          # -t = Perform all possible tests on the specified kexts.
+          # -n = Neither load the kext nor send personalities to the kernel.
+          # -k = Link against the given kernel_file.
+          #
+          kextutil -qtnk /System/Library/Kernels/kernel "${gTargetDirectory}/${gKextName}.kext"
+        else
+          kextutil -qtnk /mach_kernel "${gTargetDirectory}/${gKextName}.kext"
+      fi
 
       if (($? == 0));
         then
