@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.9 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 3.0 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -43,7 +43,10 @@
 #			- Changed CFBundleShortVersionString injection for Yosemite (Pike R. Alpha, June 2014)
 #			- Changed CFBundleVersion injection for Yosemite (Pike R. Alpha, June 2014)
 #			- Typo in URL fixed (Pike R. Alpha, June 2014)
-#			- Automatic binary patching of AppleHDAController added (Pike R. Alpha, June 2014)
+#			- Automatic binary patching of AppleHDAController added (Pike R. Alpha, July 2014)
+#			- Always use ${gKextName} instead of hard coded 'AppleHDA892' (Pike R. Alpha, July 2014)
+#			- Changed two variable names/now using the right var names (Pike R. Alpha, July 2014)
+#			- Add a forgotten cp instruction for the patched binary file (Pike R. Alpha, July 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -127,7 +130,7 @@
 # Note: This is a special condition to get the AppleHDA binary copied without actually patching it.
 #
 
-gScriptVersion=2.9
+gScriptVersion=3.0
 
 #
 # Setting the debug mode (default off).
@@ -500,6 +503,40 @@ function _checkPatchPatterns()
   return 1
 }
 
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _checkKernelFlags()
+{
+  printf "Checking boot arguments ... "
+
+  local data=$(awk '/<key>Kernel Flags<\/key>.*/,/<\/string>/' /Library/Preferences/SystemConfiguration/com.apple.Boot.plist)
+  #
+  # Example:
+  #
+  # <key>Kernel Flags</key>
+  # <string>-f -no-zp kext-dev-mode=1</string>
+  #
+  local kernelFlags=$(echo $data | egrep -o '(<string>.*</string>)' | sed -e 's/<\/*string>//g')
+  #
+  # Example:
+  #
+  # -f -no-zp kext-dev-mode=1
+  #
+  #
+  # Check to see if 'kext-dev-mode=1' is set?
+  #
+  if [[ "$kernelFlags" =~ "kext-dev-mode=1" ]];
+    then
+      printf "Argument 'kext-dev-mode=1' found (OK)\n"
+    else
+      _PRINT_WARNING "Argument 'kext-dev-mode=1' not found (${gKextName}.kext won't load)!\n"
+  fi
+}
+
+
 #
 #--------------------------------------------------------------------------------
 #
@@ -524,7 +561,7 @@ function _patchAppleHDAController()
   #
   # Dump AppleHDAController in postscript hexdump style to /tmp/AppleHDAController.txt
   #
-  /usr/bin/xxd -ps $appleHDAController | tr -d '\n' > $gHexDumpFile
+  /usr/bin/xxd -ps "${appleHDAController}" | tr -d '\n' > $gHexDumpFile
 
   _DEBUG_PRINT 'Step 1, '
   #
@@ -540,8 +577,9 @@ function _patchAppleHDAController()
       #
       # 0123456789 123456789 1
       # 3d0c0a0000740e3d0c0d00 -> 3d0c0c0000740e3d0c0d00
-      #      ^
-      #      c
+      #      ^                         ^
+      #      a                 ->      c
+      #
       /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:5}c${gMatchData:6:16}|" $gHexDumpFile
     else
       _PRINT_WARNING "no match found for: __ZN18AppleHDAController17gfxMatchedHandlerEPvP9IOServiceP10IONotifier\n"
@@ -561,8 +599,9 @@ function _patchAppleHDAController()
       #
       # 0123456789 123456789 123456789
       # 3d0c0a00000f84830100003d0c0d00 -> 3d0c0c00000f84830100003d0c0d00
-      #      ^
-      #      c
+      #      ^                                 ^
+      #      a                         ->      c
+      #
       /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:5}c${gMatchData:6:24}|" $gHexDumpFile
     else
       _DEBUG_PRINT "no match found for: __ZN18AppleHDAController19edidIsValidForAudioEP6OSDatai (normal for OS X 10.8)\n"
@@ -583,12 +622,14 @@ function _patchAppleHDAController()
       # 0123456789 123456789 123456789 123456789 123456789 123456789
       #           123456789 123456789 123456789 12345678
       # 3d0c0a0000745ee9320100003d0b0d00007f103d0c0c00000f8520010000 -> 3d0c0a0000745ee9320100003d0b0d00007f103d0c0c0000747590909090
+      #             ^^                                  ^^^^^^^^^^^^
       #                                                 74XX90909090 (10.10)
+      #                                                   ^^
       #                                                 744b90909090
       #
       let jmpSource=(0x${gMatchData:12:2})
       #
-      # Calculating offset: 38 (character) / 2 = 19 (bytes)
+      # Calculating offset: 0x5e - (38 (characters) / 2 = 19 (0x13 bytes)) = 0x4b
       #
       let jmpTarget=$jmpSource-19
 
@@ -600,9 +641,9 @@ function _patchAppleHDAController()
 
       if [ "${gMatchData:48:2}" == "0f" ];
         then
-          /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:48}74${jmpTarget}90909090|" $gHexDumpFile
+          /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:48}74${newTarget}90909090|" $gHexDumpFile
         else
-          /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:50}${jmpTarget}${gMatchData:52:8}|" $gHexDumpFile
+          /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:50}${newTarget}${gMatchData:52:8}|" $gHexDumpFile
       fi
     else
       _PRINT_ERROR "no match found for: __ZN18AppleHDAController18setupHostInterfaceEv\n"
@@ -1498,6 +1539,10 @@ function main()
           # Yes.
           #
           _patchAppleHDAController
+          #
+          # Copy patched binary executable from /tmp/ into target directory.
+          #
+          cp /tmp/AppleHDAController "$targetPath"
         else
           #
           # No. Call Perl to bin-patch the executable (old style).
@@ -1617,16 +1662,7 @@ function main()
                       #
                       # Look for 'kext-dev-mode=1' in com.apple.Boot.com
                       #
-                      local kextDevMode=$(grep -o 'kext-dev-mode=1' /Library/Preferences/SystemConfiguration/com.apple.Boot.plist)
-                      #
-                      # Is kext-dev-mode=1 (already) set?
-                      #
-                      if [[ "$kextDevMode" == "kext-dev-mode=1" ]];
-                        then
-                          printf "Boot argument 'kext-dev-mode=1' found (OK)\n"
-                        else
-                          _PRINT_WARNING "Boot argument 'kext-dev-mode=1' not found (AppleHDA892.kext won't load)!\n"
-                      fi
+                      _checkKernelFlags
                   fi
             ;;
           esac
