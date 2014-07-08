@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 2.8 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 2.9 - Copyright (c) 2013-2014 by Pike R. Alpha
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -43,6 +43,7 @@
 #			- Changed CFBundleShortVersionString injection for Yosemite (Pike R. Alpha, June 2014)
 #			- Changed CFBundleVersion injection for Yosemite (Pike R. Alpha, June 2014)
 #			- Typo in URL fixed (Pike R. Alpha, June 2014)
+#			- Automatic binary patching of AppleHDAController added (Pike R. Alpha, June 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -126,7 +127,7 @@
 # Note: This is a special condition to get the AppleHDA binary copied without actually patching it.
 #
 
-gScriptVersion=2.8
+gScriptVersion=2.9
 
 #
 # Setting the debug mode (default off).
@@ -219,6 +220,11 @@ gProductVersion="$(sw_vers -productVersion)"
 #
 gAppleHDAPatchPattern=""
 gAppleHDAControllerPatchPattern=""
+
+#
+# Hex dump file for AppleHDAController patching.
+#
+gHexDumpFile="/tmp/AppleHDAController.txt"
 
 #
 # Change this to 0 if you don't want additional styling (bold/underlined).
@@ -494,6 +500,130 @@ function _checkPatchPatterns()
   return 1
 }
 
+#
+#--------------------------------------------------------------------------------
+#
+
+function _patchAppleHDAController()
+{
+  appleHDAController="${gExtensionsDirectory}/AppleHDA.kext/Contents/PlugIns/AppleHDAController.kext/Contents/MacOS/AppleHDAController"
+
+  #
+  # Cleanups.
+  #
+  if [[ -f /tmp/AppleHDAController ]];
+    then
+      rm /tmp/AppleHDAController
+  fi
+
+  if [[ -f /tmp/AppleHDAController.txt ]];
+    then
+      rm /tmp/AppleHDAController.txt
+  fi
+
+  #
+  # Dump AppleHDAController in postscript hexdump style to /tmp/AppleHDAController.txt
+  #
+  /usr/bin/xxd -ps $appleHDAController | tr -d '\n' > $gHexDumpFile
+
+  _DEBUG_PRINT 'Step 1, '
+  #
+  # Search pattern for: __ZN18AppleHDAController17gfxMatchedHandlerEPvP9IOServiceP10IONotifier
+  #
+  gMatchData=$(egrep -o '3d0c0a0000[0-9a-f]{4}3d0c0d00' $gHexDumpFile)
+
+  if [[ $gMatchData ]];
+    then
+      _DEBUG_PRINT 'patching: __ZN18AppleHDAController17gfxMatchedHandlerEPvP9IOServiceP10IONotifier ...\n'
+      #
+      # Example:
+      #
+      # 0123456789 123456789 1
+      # 3d0c0a0000740e3d0c0d00 -> 3d0c0c0000740e3d0c0d00
+      #      ^
+      #      c
+      /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:5}c${gMatchData:6:16}|" $gHexDumpFile
+    else
+      _PRINT_WARNING "no match found for: __ZN18AppleHDAController17gfxMatchedHandlerEPvP9IOServiceP10IONotifier\n"
+  fi
+
+  _DEBUG_PRINT 'Step 2, '
+  #
+  # Search pattern for: __ZN18AppleHDAController19edidIsValidForAudioEP6OSDatai
+  #
+  gMatchData=$(egrep -o '3d0c0a0000[0-9a-f]{12}3d0c0d00' $gHexDumpFile)
+
+  if [[ $gMatchData ]];
+    then
+      _DEBUG_PRINT 'patching: __ZN18AppleHDAController19edidIsValidForAudioEP6OSDatai ...\n'
+      #
+      # Example:
+      #
+      # 0123456789 123456789 123456789
+      # 3d0c0a00000f84830100003d0c0d00 -> 3d0c0c00000f84830100003d0c0d00
+      #      ^
+      #      c
+      /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:5}c${gMatchData:6:24}|" $gHexDumpFile
+    else
+      _DEBUG_PRINT "no match found for: __ZN18AppleHDAController19edidIsValidForAudioEP6OSDatai (normal for OS X 10.8)\n"
+  fi
+
+  _DEBUG_PRINT 'Step 3, '
+  #
+  # Search pattern for: __ZN18AppleHDAController18setupHostInterfaceEv
+  #
+  gMatchData=$(egrep -o '3d0c0a0000[0-9a-f]{28}3d0c0c00[0-9a-f]{14}' "${gHexDumpFile}")
+
+  if [[ $gMatchData ]];
+    then
+      _DEBUG_PRINT 'patching: __ZN18AppleHDAController18setupHostInterfaceEv ...\n'
+      #
+      # Example:
+      #
+      # 0123456789 123456789 123456789 123456789 123456789 123456789
+      #           123456789 123456789 123456789 12345678
+      # 3d0c0a0000745ee9320100003d0b0d00007f103d0c0c00000f8520010000 -> 3d0c0a0000745ee9320100003d0b0d00007f103d0c0c0000747590909090
+      #                                                 74XX90909090 (10.10)
+      #                                                 744b90909090
+      #
+      let jmpSource=(0x${gMatchData:12:2})
+      #
+      # Calculating offset: 38 (character) / 2 = 19 (bytes)
+      #
+      let jmpTarget=$jmpSource-19
+
+      newTarget=$(echo "ibase=10;obase=16; ${jmpTarget}" | bc | tr '[:upper:]' '[:lower:]')
+
+      _DEBUG_PRINT "${jmpSource}\n"
+      _DEBUG_PRINT "${jmpTarget}\n"
+      _DEBUG_PRINT "${newTarget}\n"
+
+      if [ "${gMatchData:48:2}" == "0f" ];
+        then
+          /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:48}74${jmpTarget}90909090|" $gHexDumpFile
+        else
+          /usr/bin/perl -pi -e "s|${gMatchData}|${gMatchData:0:50}${jmpTarget}${gMatchData:52:8}|" $gHexDumpFile
+      fi
+    else
+      _PRINT_ERROR "no match found for: __ZN18AppleHDAController18setupHostInterfaceEv\n"
+  fi
+
+  #
+  # Convert hex data to binary file
+  #
+  /usr/bin/xxd -r -p $gHexDumpFile /tmp/AppleHDAController
+
+  if [[ $DEBUG -eq 1 ]];
+    then
+      #
+        # Show changed bytes
+        #
+        printf "\nPatched bytes:\n-------------------------\n"
+        /usr/bin/cmp -l "${appleHDAController}" /tmp/AppleHDAController
+        echo -e "-------------------------"
+  fi
+}
+
 
 #
 #--------------------------------------------------------------------------------
@@ -549,7 +679,8 @@ function _initBinPatchPattern()
               _ABORT
           fi
         else
-          gAppleHDAControllerPatchPattern="\x0c\x0c\x00\x00\x75\x61\xeb\x30|\x0c\x0c\x00\x00\x75\x61\xeb\x0e"
+          # gAppleHDAControllerPatchPattern="\x0c\x0c\x00\x00\x75\x61\xeb\x30|\x0c\x0c\x00\x00\x75\x61\xeb\x0e"
+          gAppleHDAControllerPatchPattern="Automatic"
       fi
     #
     # Or should we init a bin-patch pattern for the AppleHDA binary?
@@ -1357,36 +1488,42 @@ function main()
       echo 'Copying AppleHDAController ...'
       cp -p "$sourceFile" "$targetFile"
 
-      if [[ $gAppleHDAControllerPatchPattern != "" ]];
+      printf "Bin-patching AppleHDAController ..."
+      #
+      # Are we supposed to auto-patch AppleHDAController?
+      #
+      if [[ $gAppleHDAControllerPatchPattern == "Automatic" ]];
         then
           #
-          # No. We have to bin-patch it.
+          # Yes.
           #
-          printf "Bin-patching AppleHDAController ..."
+          _patchAppleHDAController
+        else
           #
-          # Call Perl to bin-patch the executable.
+          # No. Call Perl to bin-patch the executable (old style).
           #
           /usr/bin/perl -pi -e 's|'$gAppleHDAControllerPatchPattern'|g' "$targetFile"
+      fi
+
+      #
+      # Get the md5 checksums of the source and target file.
+      #
+      local md5SourceFile=$(md5 $sourceFile)
+      local md5TargetFile=$(md5 $targetFile)
+      #
+      # Are the md5 checksums the same?
+      #
+      if [[ $md5SourceFile == $md5TargetFile ]];
+        then
           #
-          # Get the md5 checksums of the source and target file.
+          # Yes. Bin-patching failed.
           #
-          local md5SourceFile=$(md5 $sourceFile)
-          local md5TargetFile=$(md5 $targetFile)
+          _PRINT_ERROR " Patching failed!\n"
+        else
           #
-          # Are the md5 checksums the same?
+          # No. Bin-patching went fine.
           #
-          if [[ $md5SourceFile == $md5TargetFile ]];
-            then
-              #
-              # Yes. Bin-patching failed.
-              #
-              _PRINT_ERROR " Patching failed!\n"
-            else
-              #
-              # No. Bin-patching went fine.
-              #
-              printf " Done.\n"
-          fi
+          printf " Done.\n"
       fi
       #
       # Re-initialise variables.
@@ -1474,10 +1611,28 @@ function main()
           case "$choice" in
             y|Y ) cp -r "${gTargetDirectory}/${gKextName}.kext" "${gExtensionsDirectory}"
                   gTargetDirectory="${gExtensionsDirectory}"
+
+                  if [[ $gProductVersion =~ "10.10" ]];
+                    then
+                      #
+                      # Look for 'kext-dev-mode=1' in com.apple.Boot.com
+                      #
+                      local kextDevMode=$(grep -o 'kext-dev-mode=1' /Library/Preferences/SystemConfiguration/com.apple.Boot.plist)
+                      #
+                      # Is kext-dev-mode=1 (already) set?
+                      #
+                      if [[ "$kextDevMode" == "kext-dev-mode=1" ]];
+                        then
+                          printf "Boot argument 'kext-dev-mode=1' found (OK)\n"
+                        else
+                          _PRINT_WARNING "Boot argument 'kext-dev-mode=1' not found (AppleHDA892.kext won't load)!\n"
+                      fi
+                  fi
             ;;
           esac
       fi
   fi
+
   #
   # Check target directory.
   #
