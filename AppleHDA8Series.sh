@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 3.0 - Copyright (c) 2013-2014 by Pike R. Alpha
+# Version 3.0 - Copyright (c) 2013-2014 by Pike R. Alpha (PikeRAlpha@yahoo.com)
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -534,6 +534,10 @@ function _checkKernelFlags()
     else
       _PRINT_WARNING "Argument 'kext-dev-mode=1' not found (${gKextName}.kext won't load)!\n"
   fi
+
+  #
+  # TODO: Add check for EFI/Clover/config.plist
+  #
 }
 
 
