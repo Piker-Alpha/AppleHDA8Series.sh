@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 3.0 - Copyright (c) 2013-2014 by Pike R. Alpha (PikeRAlpha@yahoo.com)
+# Version 3.1 - Copyright (c) 2013-2014 by Pike R. Alpha (PikeRAlpha@yahoo.com)
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -46,7 +46,9 @@
 #			- Automatic binary patching of AppleHDAController added (Pike R. Alpha, July 2014)
 #			- Always use ${gKextName} instead of hard coded 'AppleHDA892' (Pike R. Alpha, July 2014)
 #			- Changed two variable names/now using the right var names (Pike R. Alpha, July 2014)
-#			- Add a forgotten cp instruction for the patched binary file (Pike R. Alpha, July 2014)
+#			- Added a forgotten cp instruction for the patched binary file (Pike R. Alpha, July 2014)
+#			- Stop re-downloading the archive from Toleda's Github repository (Pike R. Alpha, July 2014)
+#			- Added support for (new style) hdacd.plist (Pike R. Alpha, July 2014)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -130,7 +132,7 @@
 # Note: This is a special condition to get the AppleHDA binary copied without actually patching it.
 #
 
-gScriptVersion=3.0
+gScriptVersion=3.1
 
 #
 # Setting the debug mode (default off).
@@ -625,7 +627,8 @@ function _patchAppleHDAController()
       #
       # 0123456789 123456789 123456789 123456789 123456789 123456789
       #           123456789 123456789 123456789 12345678
-      # 3d0c0a0000745ee9320100003d0b0d00007f103d0c0c00000f8520010000 -> 3d0c0a0000745ee9320100003d0b0d00007f103d0c0c0000747590909090
+      # 3d0c0a0000745ee9180100003d0b0d00007f103d0c0c00000f8496000000 -> 3d0c0a0000745ee9180100003d0b0d00007f103d0c0c0000744b90909090 (DP1)
+      # 3d0c0a0000745ee9320100003d0b0d00007f103d0c0c00000f8520010000 -> 3d0c0a0000745ee9320100003d0b0d00007f103d0c0c0000747590909090 (DP2)
       #             ^^                                  ^^^^^^^^^^^^
       #                                                 74XX90909090 (10.10)
       #                                                   ^^
@@ -1052,39 +1055,62 @@ function _initConfigData()
   {
     let index=0
     local sourceFile=$1
+    local hdacdStyle=$2
+    #
+    # First we check if the 'sourceFile' exists
+    #
+    if [[ -e $sourceFile ]];
+      then
+        #
+        # Initialise PlistBuddy's command string.
+        #
+        if [[ $hdacdStyle -eq 1 ]];
+          then
+            local commandString="Print :HDAConfigDefault:"
+          else
+            local commandString="Print :IOKitPersonalities:HDA\ Hardware\ Config\ Resource:HDAConfigDefault:"
+        fi
+        #
+        # Now loop through the plist and search for the target CodecID.
+        #
+        while [ $index -lt 20 ];
+        do
+          local codecID=$(/usr/libexec/PlistBuddy -c "${commandString}$index:CodecID" $sourceFile 2>&1)
 
-    while [ $index -lt 20 ];
-    do
-      local commandString="Print :IOKitPersonalities:HDA\ Hardware\ Config\ Resource:HDAConfigDefault:${index}:"
-      local codecID=$(/usr/libexec/PlistBuddy -c "${commandString}CodecID" $sourceFile 2>&1)
-      let index++
-
-      if [[ $codecID =~ "Does Not Exist" ]];
-        then
-          _DEBUG_PRINT "Error: '$commandString' Not Found!\n"
-          return 0
-        else
-          if [[ $codecID -eq $gCodecID ]];
+          if [[ $codecID =~ "Does Not Exist" ]];
             then
-              _DEBUG_PRINT "Target CodecID found ...\n"
-              local layoutID=$(/usr/libexec/PlistBuddy -c "${commandString}LayoutID" $sourceFile)
-
-              if [[ $layoutID -eq $gLayoutID ]];
+              _DEBUG_PRINT "Error: ${commandString}${index} Not Found!\n"
+              return 0
+            else
+              #
+              # Is this the CodecID we are looking for?
+              #
+              if [[ $codecID -eq $gCodecID ]];
                 then
-                  _DEBUG_PRINT "Target LayoutID found ...\nGetting ConfigData ...\n"
-                  #
-                  # Get the ConfigData and store it in XML format (otherwise we end up with a trailing 0a)
-                  #
-                  /usr/libexec/PlistBuddy -c "${commandString}ConfigData" $sourceFile -x > "/tmp/ConfigData-ALC${gKextID}.xml"
-                  #
-                  # Strip XML tags and remove the newline characters.
-                  #
-                  gConfigData=$(awk '/<data>.*/,/<\/data>/' "/tmp/ConfigData-ALC${gKextID}.xml" | sed -e 's/<\/*data>//' | tr -d '\n')
-                  return 1
+                  _DEBUG_PRINT "Target CodecID found ...\n"
+                  local layoutID=$(/usr/libexec/PlistBuddy -c "${commandString}$index:LayoutID" $sourceFile)
+
+                  if [[ $layoutID -eq $gLayoutID ]];
+                    then
+                      _DEBUG_PRINT "Target LayoutID found ...\nGetting ConfigData ...\n"
+                      #
+                      # Get the ConfigData and store it in XML format (otherwise we end up with a trailing 0a)
+                      #
+                      /usr/libexec/PlistBuddy -c "${commandString}$index:ConfigData" $sourceFile -x > "/tmp/ConfigData-ALC${gKextID}.xml"
+                      #
+                      # Strip XML tags and remove the newline characters.
+                      #
+                      gConfigData=$(awk '/<data>.*/,/<\/data>/' "/tmp/ConfigData-ALC${gKextID}.xml" | sed -e 's/<\/*data>//' | tr -d '\n')
+                      return 1
+                  fi
               fi
           fi
-      fi
-    done
+
+          let index++
+        done
+      else
+        _DEBUG_PRINT "Warning: '$sourceFile' Not Found!\n"
+    fi
 
     return 0
   }
@@ -1102,79 +1128,105 @@ function _initConfigData()
       echo "Looking in: ${gExtensionsDirectory}/FakeSMC.kext for ConfigData"
       __searchForConfigData "${gExtensionsDirectory}/FakeSMC.kext/Contents/Info.plist"
       #
-      # Check status for success.
+      # Do we have the ConfigData now?
       #
       if (($? == 0));
         then
           #
-          # Oops. Failure. Download the files from Toleda's Github repository :-)
-          #
-          _PRINT_ERROR "ConfigData NOT found!\nDownloading ${gDownloadLink} ...\n"
-          sudo curl -o "/tmp/ALC${gKextID}.zip" $gDownloadLink
-          #
-          # Unzip the downloaded file.
-          #
-          echo ''
-          _DEBUG_PRINT "Download Done!\n"
-          printf "Unzipping "
-          unzip -u "/tmp/ALC${gKextID}.zip" -d "/tmp/"
-          #
-          # We <em>should</em> now have the Info.plist so let's do another search for ConfigData,
+          # No we don't. Check for source plists in /tmp/ (files may be there already)
           # but first convert 'gProductVersion' to something that Toleda is using.
           #
           # Examples: 10.9.2 -> 92 / 10.10 -> 10 / 10.10.1 -> 101
           #
           local plistID=$(echo $gProductVersion | sed -e 's/^10\.//' -e 's/\.//')
           #
-          # Start by checking if the file exists.
+          # Did we download and unzip the archive already?
           #
-          if [[ ! -e "/tmp/${gKextID}/Info-${plistID}.plist" ]];
+          if [[ ! -e "/tmp/${gKextID}/Info-${plistID}.plist" && ! -e "/tmp/hdacd.plist" ]];
             then
-              _DEBUG_PRINT "${STYLE_BOLD}Warning:${STYLE_RESET} Info-${plistID}.plist not found!\n"
+            #
+            # No. Download the archive from Toleda's Github repository :-)
+            #
+            _PRINT_ERROR "ConfigData NOT found!\nDownloading ${gDownloadLink} ...\n"
+            sudo curl -o "/tmp/ALC${gKextID}.zip" $gDownloadLink
+            #
+            # Unzip archive.
+            #
+            echo ''
+            _DEBUG_PRINT "Download Done!\n"
+            printf "Unzipping "
+            unzip -u "/tmp/ALC${gKextID}.zip" -d "/tmp/"
+          fi
+          #
+          # Do we have a new style plist?
+          #
+          if [[ -e "/tmp/${gKextID}/hdacd.plist" ]];
+            then
               #
-              # No. File does not exist. Create list with available plist files.
+              # Yes. Search for target CodecID, target LayoutID and ConfigData.
               #
-              plistNames=($(ls /tmp/${gKextID}/Info-??.plist | tr "\n" " "))
+              echo "Looking in: /tmp/${gKextID}/hdacd.plist for ConfigData"
+              __searchForConfigData "/tmp/${gKextID}/hdacd.plist" 1
               #
-              # Get number of plist files.
+              # Success?
               #
-              local numberOfPlistFiles=${#plistNames[@]}
-              #
-              #
-              #
-              if [[ $numberOfPlistFiles -gt 0 ]];
+              if (($? == 1));
                 then
-                  let index=0
-                  printf "\nThe available Info.plist files for the ALC ${gKextID} are:\n\n"
-
-                  for plistName in ${plistNames[@]}
-                  do
-                    let index++
-                     echo "[${index}] ${plistName}"
-                  done
-
-                  echo ''
-                  read -p "Please choose the matching Info.plist (1/${index}) " selection
-                  case "$selection" in
-                    [1-${index}])
-                       printf "\nLooking in: ${plistNames[${selection} - 1]} for ConfigData\n"
-                       __searchForConfigData "${plistNames[${selection} - 1]}"
-                       ;;
-
-                    *) _PRINT_ERROR "Invalid selection!\n"
-                       return 0
-                       ;;
-                  esac
+                  let stat=1
+                  gSourceDirectory="/tmp/${gKextID}"
               fi
             else
-              echo "Looking in: /tmp/${gKextID}/Info-${plistID}.plist for ConfigData"
-              __searchForConfigData "/tmp/${gKextID}/Info-${plistID}.plist"
-          fi
+              #
+              # No new style. Check for old style plist in /tmp/892/ (example).
+              #
+              if [[ ! -e "/tmp/${gKextID}/Info-${plistID}.plist" ]];
+                then
+                  _DEBUG_PRINT "${STYLE_BOLD}Warning:${STYLE_RESET} Info-${plistID}.plist not found!\n"
+                  #
+                  # No plist found. Create list with available plist files.
+                  #
+                  plistNames=($(ls /tmp/${gKextID}/Info-??.plist | tr "\n" " "))
+                  #
+                  # Get number of plist files.
+                  #
+                  local numberOfPlistFiles=${#plistNames[@]}
+                  #
+                  #
+                  #
+                  if [[ $numberOfPlistFiles -gt 0 ]];
+                    then
+                      let index=0
+                      printf "\nThe available Info.plist files for the ALC ${gKextID} are:\n\n"
 
-          if (($? == 1));
-            then
-              let stat=1
-              gSourceDirectory="/tmp/${gKextID}"
+                      for plistName in ${plistNames[@]}
+                      do
+                        let index++
+                         echo "[${index}] ${plistName}"
+                      done
+
+                      echo ''
+                      read -p "Please choose the matching Info.plist (1/${index}) " selection
+                      case "$selection" in
+                        [1-${index}])
+                           printf "\nLooking in: ${plistNames[${selection} - 1]} for ConfigData\n"
+                           __searchForConfigData "${plistNames[${selection} - 1]}"
+                           ;;
+
+                        *) _PRINT_ERROR "Invalid selection!\n"
+                           return 0
+                           ;;
+                      esac
+                  fi
+                else
+                  echo "Looking in: /tmp/${gKextID}/Info-${plistID}.plist for ConfigData"
+                  __searchForConfigData "/tmp/${gKextID}/Info-${plistID}.plist"
+              fi
+
+              if (($? == 1));
+                then
+                  let stat=1
+                  gSourceDirectory="/tmp/${gKextID}"
+              fi
           fi
         else
           let stat=1
@@ -1195,7 +1247,7 @@ function _initConfigData()
       echo '------------------------------------------------------------'
       return 1
     else
-      _PRINT_ERROR "ConfigData for Realtek ALC ${gKextID} with layout-id:${gLayoutID} was NOT found!"
+      _PRINT_ERROR "ConfigData for Realtek ALC ${gKextID} with layout-id:${gLayoutID} was NOT found!\nTip: Change the layout-id in your DSDT, HDAEnabler.kext or device-properties"
   fi
 
   return 0
