@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 3.2 - Copyright (c) 2013-2015 by Pike R. Alpha (PikeRAlpha@yahoo.com)
+# Version 3.3 - Copyright (c) 2013-2016 by Pike R. Alpha (PikeRAlpha@yahoo.com)
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -55,16 +55,20 @@
 #			- Target directory argument -d renamed to -t (Pike R. Alpha, August 2015)
 #			- Debug enable argument -d added (Pike R. Alpha, August 2015)
 #			- Support for Skylake ACPI tables added (Pike R. Alpha, November 2015)
+#			- Compress XML files (when found) before copying them to the target folder (cecekpawon, April 2016)
+#			- Prepare version check for OS X 10.12 (Pike R. Alpha, May 2016)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
+#			- Check HDEF/HDAS changes.
 #
 # Contributors:
 #			- Thanks to 'Toleda' for providing a great Github repository and all his testing.
 #			- Thanks to 'philip_petev' for his tip to use PlistBuddy.
+#			- Thanks to 'cecekpawon' for his perl -MCompress::Zlib addition.
 #
 
-gScriptVersion=3.2
+gScriptVersion=3.3
 
 #
 # Setting the debug mode (default off).
@@ -914,6 +918,9 @@ function _initOSName()
     10.11*) gOSName="El Capitan"
             ;;
 
+    10.12*) gOSName="Nightly"
+            ;;
+
     *     ) _PRINT_ERROR "OS X $gProductVersion is not supported by AppleHDA8Series.sh!\n"
             _ABORT
             ;;
@@ -1112,7 +1119,7 @@ function _initConfigData()
 
                   if [[ $layoutID -eq $gLayoutID ]];
                     then
-                      _DEBUG_PRINT "Target LayoutID found ...\nGetting ConfigData ...\n"
+                      _DEBUG_PRINT "Target LayoutID found: ${layoutID} ...\nGetting ConfigData ...\n"
                       #
                       # Get the ConfigData and store it in XML format (otherwise we end up with a trailing 0a)
                       #
@@ -1515,11 +1522,18 @@ function main()
   #
   # Copy the Platforms file from the source directory.
   #
-  if [[ -e "${gSourceDirectory}/layout${gLayoutID}.xml.zlib" ]];
+  if [[ -e "${gSourceDirectory}/Platforms.xml.zlib" ]];
     then
       cp "${gSourceDirectory}/Platforms.xml.zlib" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/"
-    else
-      cp "${gSourceDirectory}/Platforms.xml" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/"
+    elif [[ -e "${gSourceDirectory}/Platforms.xml" ]];
+      then
+        #
+        # Compress deflated copy of Platform.xml (thanks to cecekpawon).
+        #
+        perl -MCompress::Zlib -e "undef $/; print compress(<>)"  < "${gSourceDirectory}/Platforms.xml" > "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/Platforms.xml.zlib"
+      else
+        _PRINT_ERROR "No Platforms.xml(.zlib) found ..."
+        _ABORT
   fi
   #
   # Copy the layout file from the source directory.
@@ -1527,8 +1541,15 @@ function main()
   if [[ -e "${gSourceDirectory}/layout${gLayoutID}.xml.zlib" ]];
     then
        cp "${gSourceDirectory}/layout${gLayoutID}.xml.zlib" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/"
-     else
-       cp "${gSourceDirectory}/layout${gLayoutID}.xml" "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/"
+     elif [[ -e "${gSourceDirectory}/Platforms.xml" ]];
+       then
+         #
+         # Compress deflated copy of layout.xml (thanks to cecekpawon).
+         #
+         perl -MCompress::Zlib -e "undef $/; print compress(<>)"  < "${gSourceDirectory}/layout${gLayoutID}.xml" > "${gTargetDirectory}/${gKextName}.kext/Contents/PlugIns/AppleHDALoader.kext/Contents/Resources/layout${gLayoutID}.xml.zlib"
+       else
+         _PRINT_ERROR "No layout${gLayoutID}.xml(.zlib) found ..."
+         _ABORT
   fi
 
   #
@@ -1573,7 +1594,7 @@ function main()
           #
           # Are the md5 checksums the same?
           #
-          if [[ $md5SourceFile == $md5TargetFile ]];
+          if [[ "$md5SourceFile" == "$md5TargetFile" ]];
             then
               #
               # Yes. Bin-patching failed.
@@ -1646,7 +1667,7 @@ function main()
       #
       # Are the md5 checksums the same?
       #
-      if [[ $md5SourceFile == $md5TargetFile ]];
+      if [[ "$md5SourceFile" == "$md5TargetFile" ]];
         then
           #
           # Yes. Bin-patching failed.
@@ -1721,9 +1742,9 @@ function main()
     then
       _DEBUG_PRINT "Checking kext with kextutil ...\n"
       #
-      # Check for Yosemite (different kernel path).
+      # Check for Yosemite OS and greater (need different kernel path).
       #
-      if [[ $gProductVersion =~ "10.10" ]];
+      if [[ $(echo -n "$gProductVersion" | egrep -e "10.1[012]{1}") ]];
         then
           #
           # -q = Quiet mode; print no informational or error messages.
@@ -1742,7 +1763,7 @@ function main()
 
           read -p "Do you want to copy ${gKextName}.kext to: ${gExtensionsDirectory}? (y/n) " choice
           case "$choice" in
-            y|Y ) cp -r "${gTargetDirectory}/${gKextName}.kext" "${gExtensionsDirectory}"
+            y|Y ) cp -R "${gTargetDirectory}/${gKextName}.kext" "${gExtensionsDirectory}"
                   gTargetDirectory="${gExtensionsDirectory}"
 
                   if [ $gOSName == "Yosemite" ];
