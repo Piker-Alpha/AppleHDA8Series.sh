@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 3.1 - Copyright (c) 2013-2014 by Pike R. Alpha (PikeRAlpha@yahoo.com)
+# Version 3.2 - Copyright (c) 2013-2015 by Pike R. Alpha (PikeRAlpha@yahoo.com)
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -49,6 +49,12 @@
 #			- Added a forgotten cp instruction for the patched binary file (Pike R. Alpha, July 2014)
 #			- Stop re-downloading the archive from Toleda's Github repository (Pike R. Alpha, July 2014)
 #			- Added support for (new style) hdacd.plist (Pike R. Alpha, July 2014)
+#			- DEBUG renamed to gDebug (Pike R. Alpha, July 2015)
+#			- _getVolumeName() added (Pike R. Alpha, August 2015)
+#			- _getSIPStatus() added (Pike R. Alpha, August 2015)
+#			- Target directory argument -d renamed to -t (Pike R. Alpha, August 2015)
+#			- Debug enable argument -d added (Pike R. Alpha, August 2015)
+#			- Support for Skylake ACPI tables added (Pike R. Alpha, November 2015)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -57,87 +63,13 @@
 #			- Thanks to 'Toleda' for providing a great Github repository and all his testing.
 #			- Thanks to 'philip_petev' for his tip to use PlistBuddy.
 #
-#
-# Usage (version 0.2 - version 0.5):
-#
-#           - ./AppleHDA8Series.sh [target directory]
-#
-#           - ./AppleHDA8Series.sh /System/Library/Extensions
-#
-# Usage (version 1.0 and greater):
-#
-#           - ./AppleHDA8Series.sh [target directory] [layout-id]
-#
-#           or:
-#
-#           - ./AppleHDA8Series.sh  [layout-id] [target directory]
-#
-# Examples:
-#           - ./AppleHDA8Series.sh
-#           - ./AppleHDA8Series.sh 892 /System/Library/Extensions
-#           - ./AppleHDA8Series.sh /System/Library/Extensions 892
-#
-# Usage (version 1.5):
-#
-#           - ./AppleHDA8Series.sh [hald]
-#
-# Examples:
-#           - ./AppleHDA8Series.sh
-#           - ./AppleHDA8Series.sh -a 892 
-#           - ./AppleHDA8Series.sh -a 892 -l 3
-#           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
-#
-# Usage (version 1.6 and 1.7):
-#
-#           - ./AppleHDA8Series.sh [halbd]
-#
-# Examples:
-#           - ./AppleHDA8Series.sh
-#           - ./AppleHDA8Series.sh -a 892
-#           - ./AppleHDA8Series.sh -a 892 -l 3
-#           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
-#           - ./AppleHDA8Series.sh -b AppleHDA
-#
-# Usage (version 1.8):
-#
-#           - ./AppleHDA8Series.sh [halbd]
-#
-# Examples:
-#           - ./AppleHDA8Series.sh
-#           - ./AppleHDA8Series.sh -a 892
-#           - ./AppleHDA8Series.sh -a 892 -l 3
-#           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
-#           - ./AppleHDA8Series.sh -b AppleHDA (uses built-in patch pattern)
-#           - ./AppleHDA8Series.sh -b AppleHDA:\x8b\x19\xd4\x11,\x92\x08\xec\x10
-#
-# Usage (version 1.9 and greater):
-#
-#           - ./AppleHDA8Series.sh [halbd]
-#
-# Examples:
-#           - ./AppleHDA8Series.sh
-#           - ./AppleHDA8Series.sh -a 892
-#           - ./AppleHDA8Series.sh -a 892 -l 3
-#           - ./AppleHDA8Series.sh -a 892 -l 3 -d /System/Library/Extensions
-#           - ./AppleHDA8Series.sh -b AppleHDA (uses built-in patch pattern)
-#           - ./AppleHDA8Series.sh -b AppleHDA:\x8b\x19\xd4\x11,\x92\x08\xec\x10
-#           - ./AppleHDA8Series.sh -b AppleHDA -b AppleHDAController
-#           - ./AppleHDA8Series.sh -b AppleHDA:\x8b\x19\xd4\x11,\x92\x08\xec\x10 -b AppleHDAController:\x0c\x0c\x00\x00\x75\x61\xeb\x30,\x0c\x0c\x00\x00\x75\x61\xeb\x0e
-#
-# Usage (version 2.4 and greater):
-#
-# Example:
-#           - ./AppleHDA8Series.sh -b AppleHDA:\x85\x08\xec\x10,\x85\x08\xec\x10
-#
-# Note: This is a special condition to get the AppleHDA binary copied without actually patching it.
-#
 
-gScriptVersion=3.1
+gScriptVersion=3.2
 
 #
 # Setting the debug mode (default off).
 #
-let DEBUG=0
+let gDebug=0
 
 #
 # Get user id
@@ -153,6 +85,8 @@ gSourceDirectory="/Users/$(whoami)/Desktop"
 # Get the current working directory.
 #
 gTargetDirectory="$(pwd)"
+
+gVolumeName=$(diskutil info / | grep "Volume Name" | sed -e 's/.*: *//')
 
 #
 # This is the name of the target kext, but without the extension (.kext)
@@ -223,6 +157,10 @@ gProductVersion="$(sw_vers -productVersion)"
 #
 # These will be initialised later on, when required.
 #
+gSIP=0
+gKextSigning=""
+gFilesystemProtections=""
+gOSName=""
 gAppleHDAPatchPattern=""
 gAppleHDAControllerPatchPattern=""
 
@@ -276,7 +214,7 @@ STYLE_UNDERLINED="[4m"
 function _showHeader()
 {
   printf "AppleHDA8Series.sh v${gScriptVersion} Copyright (c) 2013-$(date "+%Y") by Pike R. Alpha\n"
-  printf "                    patched XML files by Toleda and contributors\n"
+  printf "                   Patched XML files by Toleda and contributors.\n"
   echo '----------------------------------------------------------------'
 }
 
@@ -358,6 +296,38 @@ function _ABORT()
 #--------------------------------------------------------------------------------
 #
 
+function _getVolumeName()
+{
+  gVolumeName=$(diskutil info / | grep "Volume Name" | sed -e 's/.*: *//')
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _getSIPStatus()
+{
+  if [ $gOSName == "El Capitan" ];
+    then
+      local status=$(/usr/bin/csrutil status | grep "$1" | sed -e 's/.*: *//')
+
+      _DEBUG_PRINT "SIP $1: ${status}\n"
+
+      case "$1" in
+        'Kext Signing'          ) gKextSigning=$status
+                                  ;;
+
+        'Filesystem Protections') gFilesystemProtections=$status
+                                  ;;
+      esac
+  fi
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
 function _selectLayoutID()
 {
   let index=0
@@ -397,7 +367,7 @@ function _checkHDEFProperties()
       # -r = Show subtrees rooted by objects that match the specified criteria (-p and -k)
       # -w = Clipping (none, unlimited line width)
       # -p = Traverse the registry plane 'IODeviceTree'
-      # -n = Show properties if there is an object with the name 'HDEF'
+      # -n = Show properties if there is an object with the name 'HDEF' or 'HDAS'
       #
       ioreg -rw 0 -p IODeviceTree -n HDEF > /tmp/HDEF.txt
   fi
@@ -514,7 +484,7 @@ function _checkKernelFlags()
 {
   printf "Checking boot arguments ... "
 
-  local data=$(awk '/<key>Kernel Flags<\/key>.*/,/<\/string>/' /Library/Preferences/SystemConfiguration/com.apple.Boot.plist)
+  local data=$(awk '/<key>Kernel Flags<\/key>.*/,/<\/string>/' "/Volumes/${gVolumeName}/Library/Preferences/SystemConfiguration/com.apple.Boot.plist")
   #
   # Example:
   #
@@ -527,14 +497,36 @@ function _checkKernelFlags()
   #
   # -f -no-zp kext-dev-mode=1
   #
-  #
-  # Check to see if 'kext-dev-mode=1' is set?
-  #
-  if [[ "$kernelFlags" =~ "kext-dev-mode=1" ]];
+  if [ $gOSName == "Yosemite" ];
     then
-      printf "Argument 'kext-dev-mode=1' found (OK)\n"
-    else
-      _PRINT_WARNING "Argument 'kext-dev-mode=1' not found (${gKextName}.kext won't load)!\n"
+      #
+      # Check to see if 'kext-dev-mode=1' is set?
+      #
+      if [[ "$kernelFlags" =~ "kext-dev-mode=1" ]];
+        then
+          printf "Argument 'kext-dev-mode=1' found in com.apple.Boot.plist (OK)\n"
+        else
+          #
+          # Oops. kext-dev-mode not found in com.apple.Boot.plist
+          # Let's try to locate it in Extra/org.chameleon.Boot.plist
+          #
+          if [[ -f "/Volumes/${gVolumeName}/Extra/org.chameleon.Boot.plist" ]];
+            then
+              DEBUG_PRINT "org.chameleon.Boot.plist found\n"
+
+              local data=$(awk '/<key>Kernel Flags<\/key>.*/,/<\/string>/' "/Volumes/${gVolumeName}/Extra/org.chameleon.Boot.plist")
+              local kernelFlags=$(echo $data | egrep -o '(<string>.*</string>)' | sed -e 's/<\/*string>//g')
+
+              if [[ "$kernelFlags" =~ "kext-dev-mode=1" ]];
+                then
+                  printf "Argument 'kext-dev-mode=1' found in org.chameleon.Boot.plist (OK)\n"
+                else
+                  _PRINT_WARNING "Argument 'kext-dev-mode=1' not found (${gKextName}.kext won't load)!\n"
+              fi
+            else
+              _PRINT_WARNING "Argument 'kext-dev-mode=1' not found (${gKextName}.kext won't load)!\n"
+          fi
+      fi
   fi
 
   #
@@ -849,15 +841,15 @@ function _initLayoutID()
       # -r = Show subtrees rooted by objects that match the specified criteria (-p and -k)
       # -w = Clipping (none, unlimited line width)
       # -p = Traverse the registry plane 'IODeviceTree'
-      # -n = Show properties if there is an object with the name 'HDEF'
+      # -n = Show properties if there is an object with the name 'HDEF' or 'HDAS'
       #
       ioreg -rw 0 -p IODeviceTree -n HDEF > /tmp/HDEF.txt
       #
-      # Check for Device (HDEF) in the ioregHDEFData.
+      # Check for Device (HDEF@1B/HDAS@1F) in the ioregHDEFData.
       #
-      if [[ $(cat /tmp/HDEF.txt | grep -o "HDEF@1B") == "HDEF@1B" ]];
+      if [[ $(cat /tmp/HDEF.txt | grep -o "HD[EA][FS]@1[BF]") =~ "@1" ]];
         then
-          _DEBUG_PRINT "ACPI Device (HDEF) {} found\n"
+          _DEBUG_PRINT "ACPI Device (HDEF/HDAS) {} found\n"
           #
           # Get layout-id from ioreg data.
           #
@@ -895,11 +887,39 @@ function _initLayoutID()
               esac
           fi
         else
-          _PRINT_ERROR "ACPI Device (HDEF) {} NOT found!\n"
+          _PRINT_ERROR "ACPI Device (HDEF/HDAS) {} NOT found!\n"
           echo '       ACPI tables appear to be broken and require (manual) patching! '
           _ABORT
       fi
   fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _initOSName()
+{
+  case "${gProductVersion}" in
+    10.8* ) gOSName="Mountain Lion"
+            ;;
+
+    10.9* ) gOSName="Mavericks"
+            ;;
+
+    10.10*) gOSName="Yosemite"
+            ;;
+
+    10.11*) gOSName="El Capitan"
+            ;;
+
+    *     ) _PRINT_ERROR "OS X $gProductVersion is not supported by AppleHDA8Series.sh!\n"
+            _ABORT
+            ;;
+  esac
+
+  _DEBUG_PRINT "OS X $gOSName detected as our target\n"
 }
 
 
@@ -1260,61 +1280,61 @@ function _initConfigData()
 
 function _creatInfoPlist()
 {
-  echo '<?xml version="1.0" encoding="UTF-8"?>'                                                                       > $gInfoPlist
-  echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'      >> $gInfoPlist
-  echo '<plist version="1.0">'                                                                                       >> $gInfoPlist
-  echo '<dict>'                                                                                                      >> $gInfoPlist
-  echo '	<key>BuildMachineOSBuild</key>'                                                                          >> $gInfoPlist
-  echo '	<string>13C32</string>'                                                                                  >> $gInfoPlist
-  echo '	<key>CFBundleDevelopmentRegion</key>'                                                                    >> $gInfoPlist
-  echo '	<string>English</string>'                                                                                >> $gInfoPlist
-  echo '	<key>CFBundleGetInfoString</key>'                                                                        >> $gInfoPlist
-  echo '	<string>AppleHDA'$gKextID' v'$gScriptVersion'.0, Copyright © 2013-'$(date "+%Y")' Pike R. Alpha. All rights reserved.</string>' >> $gInfoPlist
-  echo '	<key>CFBundleIdentifier</key>'                                                                           >> $gInfoPlist
-  echo '	<string>com.PikeRAlpha.driver.AppleHDA'$gKextID'</string>'                                               >> $gInfoPlist
-  echo '	<key>CFBundleInfoDictionaryVersion</key>'                                                                >> $gInfoPlist
-  echo '	<string>6.0</string>'                                                                                    >> $gInfoPlist
-  echo '	<key>CFBundleName</key>'                                                                                 >> $gInfoPlist
-  echo '	<string>Realtek '$gKextID' Configuation Driver</string>'                                                 >> $gInfoPlist
-  echo '	<key>CFBundlePackageType</key>'                                                                          >> $gInfoPlist
-  echo '	<string>KEXT</string>'                                                                                   >> $gInfoPlist
-  echo '	<key>CFBundleShortVersionString</key>'                                                                   >> $gInfoPlist
-  echo '	<string>'$gScriptVersion'.0</string>'                                                                    >> $gInfoPlist
-  echo '	<key>CFBundleSignature</key>'                                                                            >> $gInfoPlist
-  echo '	<string>????</string>'                                                                                   >> $gInfoPlist
-  echo '	<key>CFBundleVersion</key>'                                                                              >> $gInfoPlist
-  echo '	<string>'$gScriptVersion'.0</string>'                                                                    >> $gInfoPlist
-  echo '	<key>IOKitPersonalities</key>'                                                                           >> $gInfoPlist
-  echo '	<dict>'                                                                                                  >> $gInfoPlist
-  echo '		<key>HDA Hardware Config Resource</key>'                                                             >> $gInfoPlist
-  echo '		<dict>'                                                                                              >> $gInfoPlist
-  echo '			<key>CFBundleIdentifier</key>'                                                                   >> $gInfoPlist
-  echo '			<string>com.apple.driver.AppleHDAHardwareConfigDriver</string>'                                  >> $gInfoPlist
-  echo '			<key>HDAConfigDefault</key>'                                                                     >> $gInfoPlist
-  echo '			<array>'                                                                                         >> $gInfoPlist
-  echo '				<dict>'                                                                                      >> $gInfoPlist
-  echo '					<key>CodecID</key>'                                                                      >> $gInfoPlist
-  echo '					<integer>'$gCodecID'</integer>'                                                          >> $gInfoPlist
-  echo '					<key>ConfigData</key>'                                                                   >> $gInfoPlist
-  echo '					<data>'$gConfigData'</data>'                                                             >> $gInfoPlist
-  echo '					<key>FuncGroup</key>'                                                                    >> $gInfoPlist
-  echo '					<integer>1</integer>'                                                                    >> $gInfoPlist
-  echo '					<key>LayoutID</key>'                                                                     >> $gInfoPlist
-  echo '					<integer>'$gLayoutID'</integer>'                                                         >> $gInfoPlist
-  echo '				</dict>'                                                                                     >> $gInfoPlist
-  echo '			</array>'                                                                                        >> $gInfoPlist
-  echo '			<key>IOClass</key>'                                                                              >> $gInfoPlist
-  echo '			<string>AppleHDAHardwareConfigDriver</string>'                                                   >> $gInfoPlist
-  echo '			<key>IOMatchCategory</key>'                                                                      >> $gInfoPlist
-  echo '			<string>AppleHDAHardwareConfigDriver</string>'                                                   >> $gInfoPlist
-  echo '			<key>IOProviderClass</key>'                                                                      >> $gInfoPlist
-  echo '			<string>AppleHDAHardwareConfigDriverLoader</string>'                                             >> $gInfoPlist
-  echo '		</dict>'                                                                                             >> $gInfoPlist
-  echo '	</dict>'                                                                                                 >> $gInfoPlist
-  echo '	<key>OSBundleRequired</key>'                                                                             >> $gInfoPlist
-  echo '	<string>Root</string>'                                                                                   >> $gInfoPlist
-  echo '</dict>'                                                                                                     >> $gInfoPlist
-  echo '</plist>'                                                                                                    >> $gInfoPlist
+  echo '<?xml version="1.0" encoding="UTF-8"?>'                                                                       > "$gInfoPlist"
+  echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'      >> "$gInfoPlist"
+  echo '<plist version="1.0">'                                                                                       >> "$gInfoPlist"
+  echo '<dict>'                                                                                                      >> "$gInfoPlist"
+  echo '	<key>BuildMachineOSBuild</key>'                                                                          >> "$gInfoPlist"
+  echo '	<string>13C32</string>'                                                                                  >> "$gInfoPlist"
+  echo '	<key>CFBundleDevelopmentRegion</key>'                                                                    >> "$gInfoPlist"
+  echo '	<string>English</string>'                                                                                >> "$gInfoPlist"
+  echo '	<key>CFBundleGetInfoString</key>'                                                                        >> "$gInfoPlist"
+  echo '	<string>AppleHDA'$gKextID' v'$gScriptVersion'.0, Copyright © 2013-'$(date "+%Y")' Pike R. Alpha. All rights reserved.</string>' >> "$gInfoPlist"
+  echo '	<key>CFBundleIdentifier</key>'                                                                           >> "$gInfoPlist"
+  echo '	<string>com.PikeRAlpha.driver.AppleHDA'$gKextID'</string>'                                               >> "$gInfoPlist"
+  echo '	<key>CFBundleInfoDictionaryVersion</key>'                                                                >> "$gInfoPlist"
+  echo '	<string>6.0</string>'                                                                                    >> "$gInfoPlist"
+  echo '	<key>CFBundleName</key>'                                                                                 >> "$gInfoPlist"
+  echo '	<string>Realtek '$gKextID' Configuation Driver</string>'                                                 >> "$gInfoPlist"
+  echo '	<key>CFBundlePackageType</key>'                                                                          >> "$gInfoPlist"
+  echo '	<string>KEXT</string>'                                                                                   >> "$gInfoPlist"
+  echo '	<key>CFBundleShortVersionString</key>'                                                                   >> "$gInfoPlist"
+  echo '	<string>'$gScriptVersion'.0</string>'                                                                    >> "$gInfoPlist"
+  echo '	<key>CFBundleSignature</key>'                                                                            >> "$gInfoPlist"
+  echo '	<string>????</string>'                                                                                   >> "$gInfoPlist"
+  echo '	<key>CFBundleVersion</key>'                                                                              >> "$gInfoPlist"
+  echo '	<string>'$gScriptVersion'.0</string>'                                                                    >> "$gInfoPlist"
+  echo '	<key>IOKitPersonalities</key>'                                                                           >> "$gInfoPlist"
+  echo '	<dict>'                                                                                                  >> "$gInfoPlist"
+  echo '		<key>HDA Hardware Config Resource</key>'                                                             >> "$gInfoPlist"
+  echo '		<dict>'                                                                                              >> "$gInfoPlist"
+  echo '			<key>CFBundleIdentifier</key>'                                                                   >> "$gInfoPlist"
+  echo '			<string>com.apple.driver.AppleHDAHardwareConfigDriver</string>'                                  >> "$gInfoPlist"
+  echo '			<key>HDAConfigDefault</key>'                                                                     >> "$gInfoPlist"
+  echo '			<array>'                                                                                         >> "$gInfoPlist"
+  echo '				<dict>'                                                                                      >> "$gInfoPlist"
+  echo '					<key>CodecID</key>'                                                                      >> "$gInfoPlist"
+  echo '					<integer>'$gCodecID'</integer>'                                                          >> "$gInfoPlist"
+  echo '					<key>ConfigData</key>'                                                                   >> "$gInfoPlist"
+  echo '					<data>'$gConfigData'</data>'                                                             >> "$gInfoPlist"
+  echo '					<key>FuncGroup</key>'                                                                    >> "$gInfoPlist"
+  echo '					<integer>1</integer>'                                                                    >> "$gInfoPlist"
+  echo '					<key>LayoutID</key>'                                                                     >> "$gInfoPlist"
+  echo '					<integer>'$gLayoutID'</integer>'                                                         >> "$gInfoPlist"
+  echo '				</dict>'                                                                                     >> "$gInfoPlist"
+  echo '			</array>'                                                                                        >> "$gInfoPlist"
+  echo '			<key>IOClass</key>'                                                                              >> "$gInfoPlist"
+  echo '			<string>AppleHDAHardwareConfigDriver</string>'                                                   >> "$gInfoPlist"
+  echo '			<key>IOMatchCategory</key>'                                                                      >> "$gInfoPlist"
+  echo '			<string>AppleHDAHardwareConfigDriver</string>'                                                   >> "$gInfoPlist"
+  echo '			<key>IOProviderClass</key>'                                                                      >> "$gInfoPlist"
+  echo '			<string>AppleHDAHardwareConfigDriverLoader</string>'                                             >> "$gInfoPlist"
+  echo '		</dict>'                                                                                             >> "$gInfoPlist"
+  echo '	</dict>'                                                                                                 >> "$gInfoPlist"
+  echo '	<key>OSBundleRequired</key>'                                                                             >> "$gInfoPlist"
+  echo '	<string>Root</string>'                                                                                   >> "$gInfoPlist"
+  echo '</dict>'                                                                                                     >> "$gInfoPlist"
+  echo '</plist>'                                                                                                    >> "$gInfoPlist"
 }
 
 
@@ -1346,14 +1366,15 @@ function _getScriptArguments()
         then
           if [[ $gExtraStyling -eq 1 ]];
             then
-              echo "${STYLE_BOLD}Usage:${STYLE_RESET} ./AppleHDA8Series.sh [-haldb]"
+              echo "${STYLE_BOLD}Usage:${STYLE_RESET} ./AppleHDA8Series.sh [-abdhlt]"
             else
-              echo "Usage: ./AppleHDA8Series.sh [-haldb]"
+              echo "Usage: ./AppleHDA8Series.sh [-abdhlt]"
           fi
-          echo '       -h print help info'
-          echo '       -a target ALC [885/887/888/889/892/898/1150]'
-          echo '       -l target layout-id'
-          echo '       -d target directory'
+          echo '       -h Print help info'
+          echo '       -d Enable debug output'
+          echo '       -a Target ALC [885/887/888/889/892/898/1150]'
+          echo '       -l Target layout-id'
+          echo '       -t Target directory'
           echo '       -b AppleHDA'
           echo '       -b AppleHDA:search,replace'
           echo '       -b AppleHDAController:search,replace'
@@ -1449,6 +1470,9 @@ function main()
 {
   _showHeader
   _getScriptArguments "$@"
+  _initOSName $1
+  _getSIPStatus 'Kext Signing'
+  _getSIPStatus 'Filesystem Protections'
   _initCodecID
   _initLayoutID $gTargetLayoutID
   _checkHDEFProperties
@@ -1530,14 +1554,22 @@ function main()
         then
           printf "Bin-patching AppleHDA ..."
           #
+          # Check for El Capitan
+          #
+          if [[ $gOSName == "El Capitan" ]];
+            then
+              /usr/bin/perl -pi -e 's|\x83\x19\xd4\x11|\x00\x00\x00\x00|g' "$targetFile"
+          fi
+          #
+          #
           # Call Perl to bin-patch the executable.
           #
           /usr/bin/perl -pi -e 's|'$gAppleHDAPatchPattern'|g' "$targetFile"
           #
           # Get the md5 checksums of the source and target file.
           #
-          local md5SourceFile=$(md5 $sourceFile)
-          local md5TargetFile=$(md5 $targetFile)
+          local md5SourceFile=$(md5 "$sourceFile")
+          local md5TargetFile=$(md5 "$targetFile")
           #
           # Are the md5 checksums the same?
           #
@@ -1609,8 +1641,8 @@ function main()
       #
       # Get the md5 checksums of the source and target file.
       #
-      local md5SourceFile=$(md5 $sourceFile)
-      local md5TargetFile=$(md5 $targetFile)
+      local md5SourceFile=$(md5 "$sourceFile")
+      local md5TargetFile=$(md5 "$targetFile")
       #
       # Are the md5 checksums the same?
       #
@@ -1713,7 +1745,7 @@ function main()
             y|Y ) cp -r "${gTargetDirectory}/${gKextName}.kext" "${gExtensionsDirectory}"
                   gTargetDirectory="${gExtensionsDirectory}"
 
-                  if [[ $gProductVersion =~ "10.10" ]];
+                  if [ $gOSName == "Yosemite" ];
                     then
                       #
                       # Look for 'kext-dev-mode=1' in com.apple.Boot.com
