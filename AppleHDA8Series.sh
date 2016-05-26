@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 3.3 - Copyright (c) 2013-2016 by Pike R. Alpha (PikeRAlpha@yahoo.com)
+# Version 3.4 - Copyright (c) 2013-2016 by Pike R. Alpha (PikeRAlpha@yahoo.com)
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -57,10 +57,13 @@
 #			- Support for Skylake ACPI tables added (Pike R. Alpha, November 2015)
 #			- Compress XML files (when found) before copying them to the target folder (cecekpawon, April 2016)
 #			- Prepare version check for OS X 10.12 (Pike R. Alpha, May 2016)
+#			- Fix -d and -t arguments (Pike R. Alpha, May 2016)
+#			- Port output style changes from ssdtPRGen.sh (Pike R. Alpha, May 2016)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
 #			- Check HDEF/HDAS changes.
+#			- Fix combination of -h/-help with other arguments.
 #
 # Contributors:
 #			- Thanks to 'Toleda' for providing a great Github repository and all his testing.
@@ -68,7 +71,12 @@
 #			- Thanks to 'cecekpawon' for his perl -MCompress::Zlib addition.
 #
 
-gScriptVersion=3.3
+#================================= GLOBAL VARS ==================================
+
+#
+# Script version info.
+#
+gScriptVersion=3.4
 
 #
 # Setting the debug mode (default off).
@@ -217,9 +225,10 @@ STYLE_UNDERLINED="[4m"
 
 function _showHeader()
 {
-  printf "AppleHDA8Series.sh v${gScriptVersion} Copyright (c) 2013-$(date "+%Y") by Pike R. Alpha\n"
+  printf "\n${STYLE_BOLD}AppleHDA8Series.sh${STYLE_RESET} v${gScriptVersion} Copyright (c) 2013-$(date "+%Y") by Pike R. Alpha\n"
   printf "                   Patched XML files by Toleda and contributors.\n"
   echo '----------------------------------------------------------------'
+  printf "${STYLE_BOLD}Bugs${STYLE_RESET} > https://github.com/Piker-Alpha/AppleHDA8Series.sh/issues <\n\n"
 }
 
 
@@ -276,6 +285,34 @@ function _PRINT_ERROR()
       printf "${STYLE_BOLD}Error:${STYLE_RESET} $1"
     else
       printf "Error: $1"
+  fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _PRINT_MSG()
+{
+  local message=$1
+
+  if [[ $gExtraStyling -eq 1 ]];
+    then
+      local messageType=$(echo $message | sed -e 's/:.*//g')
+
+      if [[ $messageType =~ ^"\n" ]];
+        then
+          local messageTypeStripped=$(echo "${messageType}" | sed -e 's/^[\n]*//')
+        else
+          local messageTypeStripped="${messageType}"
+      fi
+
+      local message=":"$(echo $message | sed -e "s/^[\n]*${messageTypeStripped}://")
+
+      printf "${STYLE_BOLD}${messageType}${STYLE_RESET}$message\n"
+    else
+      printf "${message}\n"
   fi
 }
 
@@ -936,7 +973,7 @@ function _initOSName()
 
 function _initCodecID()
 {
-  printf "The supported Realtek ALC codecs for AppleHDA8Series.sh are:\n\n"
+  printf "\nThe supported Realtek ALC codecs for AppleHDA8Series.sh are:\n\n"
   #
   # Are we called with a target ALC?
   #
@@ -1169,13 +1206,13 @@ function _initConfigData()
           #
           # Did we download and unzip the archive already?
           #
-          if [[ ! -e "/tmp/${gKextID}/Info-${plistID}.plist" && ! -e "/tmp/hdacd.plist" ]];
+          if [[ ! -e "/tmp/${gKextID}/Info-${plistID}.plist" || ! -e "/tmp/hdacd.plist" ]];
             then
             #
             # No. Download the archive from Toleda's Github repository :-)
             #
             _PRINT_ERROR "ConfigData NOT found!\nDownloading ${gDownloadLink} ...\n"
-            sudo curl -o "/tmp/ALC${gKextID}.zip" $gDownloadLink
+            sudo curl -o "/tmp/ALC${gKextID}.zip" "${gDownloadLink}"
             #
             # Unzip archive.
             #
@@ -1367,25 +1404,23 @@ function _getScriptArguments()
   if [ $# -gt 0 ];
     then
       #
-      # Yes. Do we have a single (-help) argument?
+      # Yes. Do we have a single (-h or -help) argument?
       #
-      if [[ $# -eq 1 && "$1" =~ "-h" ]];
+      local argument=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+
+      if [[ $# -eq 1 && "$argument" == "-h" || "$argument" == "-help" ]];
         then
-          if [[ $gExtraStyling -eq 1 ]];
-            then
-              echo "${STYLE_BOLD}Usage:${STYLE_RESET} ./AppleHDA8Series.sh [-abdhlt]"
-            else
-              echo "Usage: ./AppleHDA8Series.sh [-abdhlt]"
-          fi
-          echo '       -h Print help info'
-          echo '       -d Enable debug output'
-          echo '       -a Target ALC [885/887/888/889/892/898/1150]'
-          echo '       -l Target layout-id'
-          echo '       -t Target directory'
-          echo '       -b AppleHDA'
-          echo '       -b AppleHDA:search,replace'
-          echo '       -b AppleHDAController:search,replace'
-          echo ''
+          printf "${STYLE_BOLD}Usage:${STYLE_RESET}: ./AppleHDA8Series.sh [-abdhlt]\n"
+          printf "        -${STYLE_BOLD}h${STYLE_RESET} Help info (this)\n"
+          printf "        -${STYLE_BOLD}d${STYLE_RESET} Enable debug output [0-1]\n"
+          printf "           0 = no debug output\n"
+          printf "           1 = show debug output\n"
+          printf "        -${STYLE_BOLD}a${STYLE_RESET} Target ALC [885/887/888/889/892/898/1150]\n"
+          printf "        -${STYLE_BOLD}l${STYLE_RESET} Target layout-id\n"
+          printf "        -${STYLE_BOLD}t${STYLE_RESET} Target directory\n"
+          printf "        -${STYLE_BOLD}b${STYLE_RESET} AppleHDA\n"
+          printf "        -${STYLE_BOLD}b${STYLE_RESET} AppleHDA:search,replace\n"
+          printf "        -${STYLE_BOLD}b${STYLE_RESET} AppleHDAController:search,replace\n\n"
           exit 0
         else
           #
@@ -1416,20 +1451,6 @@ function _getScriptArguments()
                       fi
                       ;;
 
-                  -l) shift
-
-                      if [[ "$1" =~ ^[0-9]+$ ]];
-                        then
-                          #
-                          # Make this our target LayoutID.
-                          #
-                          let gTargetLayoutID=$1
-                          _DEBUG_PRINT "Setting gTargetLayoutID to: ${gTargetLayoutID}\n"
-                        else
-                          _invalidArgumentError "-l $1"
-                      fi
-                      ;;
-
                   -b) shift
 
                       if [[ "${1:0:19}" == "AppleHDAController:" ]];
@@ -1447,6 +1468,34 @@ function _getScriptArguments()
 
                   -d) shift
 
+                      if [[ "$1" =~ ^[01]+$ ]];
+                        then
+                          if [[ $gDebug -ne $1 ]];
+                            then
+                              let gDebug=$1
+                              _PRINT_MSG "Override value: (-d) debug mode, now using: ${gDebug}!"
+                          fi
+                        else
+                          _invalidArgumentError "-d $1"
+                      fi
+                      ;;
+
+                  -l) shift
+
+                      if [[ "$1" =~ ^[0-9]+$ ]];
+                        then
+                          #
+                          # Make this our target LayoutID.
+                          #
+                          let gTargetLayoutID=$1
+                          _DEBUG_PRINT "Setting gTargetLayoutID to: ${gTargetLayoutID}\n"
+                        else
+                          _invalidArgumentError "-l $1"
+                      fi
+                      ;;
+
+                  -t) shift
+
                       if [[ "$1" =~ ^[0-9a-zA-Z/*?]+$ ]];
                         then
                           #
@@ -1455,7 +1504,7 @@ function _getScriptArguments()
                           gTargetDirectory=$(echo "$1" | sed 's/\/$//')
                           _DEBUG_PRINT "Setting gTargetDirectory to: ${gTargetDirectory}\n"
                         else
-                          _invalidArgumentError "-d $1"
+                          _invalidArgumentError "-t $1"
                       fi
                       ;;
                 esac
@@ -1589,8 +1638,10 @@ function main()
           #
           # Get the md5 checksums of the source and target file.
           #
-          local md5SourceFile=$(md5 "$sourceFile")
-          local md5TargetFile=$(md5 "$targetFile")
+          # -q = Quiet mode (only the checksum is printed out).
+          #
+          local md5SourceFile=$(md5 -q "$sourceFile")
+          local md5TargetFile=$(md5 -q "$targetFile")
           #
           # Are the md5 checksums the same?
           #
@@ -1662,8 +1713,10 @@ function main()
       #
       # Get the md5 checksums of the source and target file.
       #
-      local md5SourceFile=$(md5 "$sourceFile")
-      local md5TargetFile=$(md5 "$targetFile")
+      # -q = Quiet mode (only the checksum is printed out).
+      #
+      local md5SourceFile=$(md5 -q "$sourceFile")
+      local md5TargetFile=$(md5 -q "$targetFile")
       #
       # Are the md5 checksums the same?
       #
