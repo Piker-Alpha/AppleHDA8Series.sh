@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 3.4 - Copyright (c) 2013-2016 by Pike R. Alpha (PikeRAlpha@yahoo.com)
+# Version 3.5 - Copyright (c) 2013-2016 by Pike R. Alpha (PikeRAlpha@yahoo.com)
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -59,6 +59,7 @@
 #			- Prepare version check for OS X 10.12 (Pike R. Alpha, May 2016)
 #			- Fix -d and -t arguments (Pike R. Alpha, May 2016)
 #			- Port output style changes from ssdtPRGen.sh (Pike R. Alpha, May 2016)
+#			- Additional changes for macOS Sierra support (Pike R. Alpha, June 2016)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -76,7 +77,7 @@
 #
 # Script version info.
 #
-gScriptVersion=3.4
+gScriptVersion=3.5
 
 #
 # Setting the debug mode (default off).
@@ -955,7 +956,7 @@ function _initOSName()
     10.11*) gOSName="El Capitan"
             ;;
 
-    10.12*) gOSName="Nightly"
+    10.12*) gOSName="Sierra"
             ;;
 
     *     ) _PRINT_ERROR "OS X $gProductVersion is not supported by AppleHDA8Series.sh!\n"
@@ -1623,13 +1624,14 @@ function main()
       if [[ $gAppleHDAPatchPattern != "" ]];
         then
           printf "Bin-patching AppleHDA ..."
-          #
-          # Check for El Capitan
-          #
-          if [[ $gOSName == "El Capitan" ]];
-            then
-              /usr/bin/perl -pi -e 's|\x83\x19\xd4\x11|\x00\x00\x00\x00|g' "$targetFile"
-          fi
+
+          case "$gOSName" in
+            "Sierra"    ) /usr/bin/perl -pi -e 's|\x8a\x19\xd4\x11|\x00\x00\x00\x00|g' "$targetFile"
+                          ;;
+            "El Capitan") /usr/bin/perl -pi -e 's|\x83\x19\xd4\x11|\x00\x00\x00\x00|g' "$targetFile"
+                          ;;
+          esac
+
           #
           #
           # Call Perl to bin-patch the executable.
