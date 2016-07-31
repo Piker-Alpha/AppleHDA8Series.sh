@@ -3,7 +3,7 @@
 #
 # Script (AppleHDA8Series.sh) to create AppleHDA892.kext (example)
 #
-# Version 3.5 - Copyright (c) 2013-2016 by Pike R. Alpha (PikeRAlpha@yahoo.com)
+# Version 3.6 - Copyright (c) 2013-2016 by Pike R. Alpha (PikeRAlpha@yahoo.com)
 #
 # Updates:
 #			- Made kext name a bit more flexible (Pike R. Alpha, January 2014)
@@ -60,6 +60,7 @@
 #			- Fix -d and -t arguments (Pike R. Alpha, May 2016)
 #			- Port output style changes from ssdtPRGen.sh (Pike R. Alpha, May 2016)
 #			- Additional changes for macOS Sierra support (Pike R. Alpha, June 2016)
+#			- Add missing 'tT' to argument filter (Pike R. Alpha, August 2016)
 #
 # TODO:
 #			- Add a way to restore the untouched/vanilla AppleHDA.kext
@@ -70,6 +71,7 @@
 #			- Thanks to 'Toleda' for providing a great Github repository and all his testing.
 #			- Thanks to 'philip_petev' for his tip to use PlistBuddy.
 #			- Thanks to 'cecekpawon' for his perl -MCompress::Zlib addition.
+#			- Thanks to 'Memphiz ' for the tip that the -t argument didn't work.
 #
 
 #================================= GLOBAL VARS ==================================
@@ -77,7 +79,7 @@
 #
 # Script version info.
 #
-gScriptVersion=3.5
+gScriptVersion=3.6
 
 #
 # Setting the debug mode (default off).
@@ -1432,7 +1434,7 @@ function _getScriptArguments()
             #
             # Is this a valid script argument flag?
             #
-            if [[ "${1}" =~ ^[-albdALBD]+$ ]];
+            if [[ "${1}" =~ ^[-abdltABDLT]+$ ]];
               then
                 #
                 # Yes. Figure out what flag it is.
